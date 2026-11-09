@@ -40,8 +40,6 @@ final class HotKeyManager {
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
     private let hotKeyID = EventHotKeyID(signature: OSType(0x5353_6874) /* 'SSht' */, id: 1)
-    /// kEventHotKeyExclusive：若其他进程已注册同一组合，则注册失败（eventHotKeyExistsErr）
-    private let exclusiveOption = OptionBits(1 << 1)
 
     private init() {
         installHandler()
@@ -73,7 +71,8 @@ final class HotKeyManager {
         unregisterRef()
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, hotKeyID,
-                                         GetApplicationEventTarget(), exclusiveOption, &ref)
+                                         GetApplicationEventTarget(), OptionBits(0), &ref)
+        // 若该组合已被其他应用注册，系统返回 eventHotKeyExistsErr
         if status == noErr {
             hotKeyRef = ref
             current = shortcut

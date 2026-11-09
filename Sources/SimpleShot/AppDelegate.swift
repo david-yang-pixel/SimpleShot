@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -21,8 +22,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let status = HotKeyManager.shared.register(shortcut)
         updateMenuShortcut()
         if status != noErr {
-            settingsController.show(message: "快捷键 \(shortcut.displayString) 已被其他应用占用，请设置一个新的快捷键。",
-                                    isError: true)
+            let message = status == OSStatus(eventHotKeyExistsErr)
+                ? "快捷键 \(shortcut.displayString) 已被其他应用占用，请设置一个新的快捷键。"
+                : "快捷键 \(shortcut.displayString) 注册失败（错误码 \(status)），请尝试设置一个新的快捷键。"
+            settingsController.show(message: message, isError: true)
         }
 
         if !ScreenCapturer.hasPermission() {
