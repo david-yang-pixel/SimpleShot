@@ -52,7 +52,7 @@ enum ScreenCapturer {
         return shots
     }
 
-    private static let log = Logger(subsystem: "io.github.simpleshot.SimpleShot", category: "capture")
+    private static let log = AppLog.capture
 
     /// 屏幕上的普通窗口、Dock、菜单栏等（全局 Cocoa 坐标），从前到后。
     /// 窗口位置来自 ScreenCaptureKit（新系统上旧的 CGWindowList 可能拿不到其他应用的窗口），
@@ -88,13 +88,27 @@ enum ScreenCapturer {
             return ra < rb
         }
 
-        log.info("windows: sc=\(content.windows.count, privacy: .public) cg=\(cgList.count, privacy: .public) usable=\(ordered.count, privacy: .public)")
+        log.info("windows: sc=\(content.windows.count, privacy: .public) cg=\(cgList.count, privacy: .public) candidates=\(ordered.count, privacy: .public)")
 
         // CG 坐标（左上原点）→ Cocoa 坐标（左下原点）
-        return ordered.map { _, w in
-            let f = w.frame
-            return CGRect(x: f.minX, y: primaryHeight - f.maxY, width: f.width, height: f.height)
+        func cocoaRect(_ f: CGRect) -> CGRect {
+            CGRect(x: f.minX, y: primaryHeight - f.maxY, width: f.width, height: f.height)
         }
+
+        var result: [CGRect] = []
+        for (_, w) in ordered {
+            let rect = cocoaRect(w.frame)
+            let app = w.owningApplication?.bundleIdentifier ?? w.owningApplication?.applicationName ?? "?"
+            // 高于普通层级、又几乎铺满某块屏幕的窗口，通常是透明遮罩（桌面小工具、菜单栏工具等），跳过
+            let coversScreen = NSScreen.screens.contains { screen in
+                let overlap = rect.intersection(screen.frame)
+                return !overlap.isNull && overlap.width * overlap.height >= screen.frame.width * screen.frame.height * 0.9
+            }
+            let skipped = w.windowLayer > 0 && coversScreen
+            log.info("window \(skipped ? "SKIP" : "use ", privacy: .public) app=\(app, privacy: .public) layer=\(w.windowLayer, privacy: .public) rect=\(NSStringFromRect(rect), privacy: .public)")
+            if !skipped { result.append(rect) }
+        }
+        return result
     }
 }
 

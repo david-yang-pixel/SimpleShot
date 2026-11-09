@@ -254,6 +254,11 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
         case .pending:
             // 单击：选中高亮的窗口（桌面则为整屏）
             selection = hoverRect ?? bounds
+            let clickText = NSStringFromPoint(convert(event.locationInWindow, from: nil))
+            let selText = NSStringFromRect(selection)
+            let screenText = NSStringFromRect(bounds)
+            let windowCount = shot.windowRects.count
+            AppLog.capture.info("click at \(clickText, privacy: .public) -> \(selText, privacy: .public) (screen \(screenText, privacy: .public), windows \(windowCount, privacy: .public))")
             enterSelected()
         case .creating:
             if selection.width < 4 || selection.height < 4 {

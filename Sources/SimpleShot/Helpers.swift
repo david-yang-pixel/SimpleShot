@@ -1,4 +1,10 @@
 import AppKit
+import OSLog
+
+enum AppLog {
+    /// 查看：log show --last 5m --predicate 'subsystem == "io.github.simpleshot.SimpleShot"' --info
+    static let capture = Logger(subsystem: "io.github.simpleshot.SimpleShot", category: "capture")
+}
 
 enum AppInfo {
     static var version: String {
