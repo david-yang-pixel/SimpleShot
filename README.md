@@ -68,7 +68,7 @@ cd SimpleShot
 
 ## 图标
 
-`Resources/AppIcon.svg` 是图标源文件，`AppIcon.png`（1024×1024）与 `AppIcon.icns` 由它导出，构建时自动打包进应用。
+`Resources/AppIcon.svg` 是图标源文件，`AppIcon.png`（1024×1024）由它导出；构建时用 `sips` + `iconutil` 生成 `.icns` 并打包进应用。
 
 ## 项目结构
 

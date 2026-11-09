@@ -281,6 +281,10 @@ final class Updater {
             fi
         fi
         xattr -dr com.apple.quarantine "$DST" 2>/dev/null
+        # 刷新 Launch Services 与图标缓存，否则可能继续显示旧图标
+        touch "$DST"
+        /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DST" 2>/dev/null
+        killall Dock 2>/dev/null
         open "$DST"
         rm -rf "$WORK"
         """

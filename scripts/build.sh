@@ -38,9 +38,20 @@ BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
 echo "    版本 $VERSION (build $BUILD_NUMBER)"
-if [ -f Resources/AppIcon.icns ]; then
-    cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# 图标：用 Apple 的 sips + iconutil 从 1024×1024 母版生成 .icns
+if [ -f Resources/AppIcon.png ]; then
+    ICONSET="build/AppIcon.iconset"
+    rm -rf "$ICONSET"
+    mkdir -p "$ICONSET"
+    for s in 16 32 128 256 512; do
+        sips -z $s $s Resources/AppIcon.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+        d=$((s * 2))
+        sips -z $d $d Resources/AppIcon.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+    done
+    iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+    rm -rf "$ICONSET"
     /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP/Contents/Info.plist" >/dev/null
+    echo "    图标已生成"
 fi
 
 echo "==> 签名 (${SIGN_IDENTITY})"
