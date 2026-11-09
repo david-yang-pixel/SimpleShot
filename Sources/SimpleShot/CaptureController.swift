@@ -100,6 +100,8 @@ final class CaptureController: SelectionViewDelegate {
         if let target { target.makeFirstResponder(target.selectionView) }
         for w in windows { w.selectionView.primeHover(globalMouse: mouse) }
         NSCursor.crosshair.set()
+        // 用户框选期间在后台预加载文字识别模型，点「提取文字」时更快
+        TextRecognizer.warmUp()
     }
 
     /// restoreFocus：是否把焦点还给截图前的应用（提取文字时要显示结果窗口，不还）

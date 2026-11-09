@@ -1,22 +1,59 @@
 import AppKit
 import Vision
 
-/// 使用系统 Vision 框架离线识别文字（中文简体 / 繁体 / 英文）
+/// 使用系统 Vision 框架离线识别文字（简体中文模型同时支持英文）
 enum TextRecognizer {
+    /// 超过这个像素数的图片先缩小再识别（约 2400×1600），足够识别清晰的文字
+    private static let maxPixels = 4_000_000
+
     static func recognize(_ image: CGImage) async throws -> String {
         try await Task.detached(priority: .userInitiated) {
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            let wanted = ["zh-Hans", "zh-Hant", "en-US"]
-            if let supported = try? request.supportedRecognitionLanguages() {
-                let languages = wanted.filter { supported.contains($0) }
-                if !languages.isEmpty { request.recognitionLanguages = languages }
-            }
-            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            let request = makeRequest()
+            let input = downscaledIfNeeded(image)
+            let handler = VNImageRequestHandler(cgImage: input, options: [:])
             try handler.perform([request])
             return TextRecognizer.layout(request.results ?? [])
         }.value
+    }
+
+    /// 预热：在后台跑一次极小的识别，让系统提前加载识别模型。
+    /// 开始截图时调用，用户框选的这几秒里模型就加载好了。
+    static func warmUp() {
+        Task.detached(priority: .utility) {
+            guard let ctx = CGContext(data: nil, width: 64, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 32))
+            guard let blank = ctx.makeImage() else { return }
+            try? VNImageRequestHandler(cgImage: blank, options: [:]).perform([makeRequest()])
+        }
+    }
+
+    private static func makeRequest() -> VNRecognizeTextRequest {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate // 快速模式不支持中文
+        request.usesLanguageCorrection = true
+        let wanted = ["zh-Hans", "en-US"]
+        if let supported = try? request.supportedRecognitionLanguages() {
+            let languages = wanted.filter { supported.contains($0) }
+            if !languages.isEmpty { request.recognitionLanguages = languages }
+        }
+        return request
+    }
+
+    private static func downscaledIfNeeded(_ image: CGImage) -> CGImage {
+        let pixels = image.width * image.height
+        guard pixels > maxPixels else { return image }
+        let scale = (Double(maxPixels) / Double(pixels)).squareRoot()
+        let w = max(1, Int(Double(image.width) * scale))
+        let h = max(1, Int(Double(image.height) * scale))
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage() ?? image
     }
 
     /// 按阅读顺序拼接：从上到下分行，同一行内从左到右
@@ -61,9 +98,10 @@ final class TextResultWindowController: NSWindowController, NSWindowDelegate {
         openControllers.append(controller)
         controller.present()
         Task { @MainActor in
+            let start = Date()
             do {
                 let text = try await TextRecognizer.recognize(image)
-                controller.showResult(text)
+                controller.showResult(text, seconds: Date().timeIntervalSince(start))
             } catch {
                 controller.showError(error.localizedDescription)
             }
@@ -142,16 +180,17 @@ final class TextResultWindowController: NSWindowController, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    private func showResult(_ text: String) {
+    private func showResult(_ text: String, seconds: TimeInterval) {
+        let elapsed = String(format: "用时 %.1f 秒", seconds)
         stopSpinner()
         textView.isEditable = true
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            setStatus("没有识别到文字")
+            setStatus("没有识别到文字（\(elapsed)）")
             return
         }
         textView.string = text
         copyButton.isEnabled = true
-        setStatus("识别到 \(text.count) 个字符，可直接修改；选中部分后 ⌘C 可只复制部分")
+        setStatus("识别到 \(text.count) 个字符，\(elapsed)。可直接修改，选中部分后 ⌘C 可只复制部分")
         window?.makeFirstResponder(textView)
     }
 
