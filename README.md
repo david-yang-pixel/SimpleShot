@@ -14,7 +14,7 @@
 ## 构建与安装
 
 ```bash
-git clone https://github.com/<你的用户名>/SimpleShot.git
+git clone https://github.com/david-yang-pixel/SimpleShot.git
 cd SimpleShot
 ./scripts/build.sh --install     # 构建并安装到 /Applications，随后自动启动
 ```

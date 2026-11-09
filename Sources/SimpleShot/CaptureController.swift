@@ -103,11 +103,13 @@ final class CaptureController: SelectionViewDelegate {
     }
 
     private func close() {
-        for w in windows {
-            w.orderOut(nil)
-            w.close()
-        }
+        // 当前仍在窗口的事件处理栈中，延后释放窗口
+        let old = windows
         windows.removeAll()
+        for w in old { w.orderOut(nil) }
+        DispatchQueue.main.async {
+            for w in old { w.close() }
+        }
         isBusy = false
         previousApp?.activate(options: [])
         previousApp = nil

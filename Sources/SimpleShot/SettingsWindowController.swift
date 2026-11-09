@@ -197,8 +197,10 @@ final class ShortcutRecorder: NSButton {
         updateTitle()
         onRecordingChanged?(true)
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
-            guard let self else { return event }
-            return self.handle(event)
+            MainActor.assumeIsolated {
+                guard let self else { return event }
+                return self.handle(event)
+            }
         }
     }
 

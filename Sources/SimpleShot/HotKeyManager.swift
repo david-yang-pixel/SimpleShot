@@ -59,7 +59,9 @@ final class HotKeyManager {
                                            MemoryLayout<EventHotKeyID>.size,
                                            nil,
                                            &id)
-            guard status == noErr, id.signature == OSType(0x5353_6874) else { return status }
+            guard status == noErr, id.signature == OSType(0x5353_6874) else {
+                return OSStatus(eventNotHandledErr)
+            }
             Task { @MainActor in HotKeyManager.shared.onTrigger?() }
             return noErr
         }, 1, &spec, nil, &handlerRef)

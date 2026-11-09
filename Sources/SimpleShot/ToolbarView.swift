@@ -40,6 +40,12 @@ final class ToolbarView: NSVisualEffectView {
         addCursorRect(bounds, cursor: .arrow)
     }
 
+    // 吞掉工具条空白处的点击，避免穿透到下面的选区视图
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseDragged(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
+    override func rightMouseDown(with event: NSEvent) {}
+
     // MARK: - UI
 
     private func buildUI() {
