@@ -6,6 +6,7 @@ protocol ToolbarViewDelegate: AnyObject {
     func toolbarDidChangeStyle(_ toolbar: ToolbarView)
     func toolbarDidChangeSize(_ toolbar: ToolbarView)
     func toolbarUndo(_ toolbar: ToolbarView)
+    func toolbarExtractText(_ toolbar: ToolbarView)
     func toolbarCancel(_ toolbar: ToolbarView)
     func toolbarConfirm(_ toolbar: ToolbarView)
 }
@@ -60,6 +61,8 @@ final class ToolbarView: NSVisualEffectView {
         }
         mainRow.addArrangedSubview(makeSeparator())
         mainRow.addArrangedSubview(makeButton("arrow.uturn.backward", "撤销 (⌘Z)", #selector(undoTapped)))
+        mainRow.addArrangedSubview(makeSeparator())
+        mainRow.addArrangedSubview(makeButton("text.viewfinder", "提取文字", #selector(extractTextTapped)))
         mainRow.addArrangedSubview(makeSeparator())
         let cancel = makeButton("xmark", "取消 (Esc)", #selector(cancelTapped))
         cancel.contentTintColor = .systemRed
@@ -162,6 +165,7 @@ final class ToolbarView: NSVisualEffectView {
     }
 
     @objc private func undoTapped() { delegate?.toolbarUndo(self) }
+    @objc private func extractTextTapped() { delegate?.toolbarExtractText(self) }
     @objc private func cancelTapped() { delegate?.toolbarCancel(self) }
     @objc private func confirmTapped() { delegate?.toolbarConfirm(self) }
 }

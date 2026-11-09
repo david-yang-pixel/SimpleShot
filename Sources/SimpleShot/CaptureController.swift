@@ -102,7 +102,8 @@ final class CaptureController: SelectionViewDelegate {
         NSCursor.crosshair.set()
     }
 
-    private func close() {
+    /// restoreFocus：是否把焦点还给截图前的应用（提取文字时要显示结果窗口，不还）
+    private func close(restoreFocus: Bool = true) {
         // 当前仍在窗口的事件处理栈中，延后释放窗口
         let old = windows
         windows.removeAll()
@@ -111,7 +112,7 @@ final class CaptureController: SelectionViewDelegate {
             for w in old { w.close() }
         }
         isBusy = false
-        previousApp?.activate(options: [])
+        if restoreFocus { previousApp?.activate(options: []) }
         previousApp = nil
     }
 
@@ -128,11 +129,13 @@ final class CaptureController: SelectionViewDelegate {
     }
 
     func selectionView(_ view: SelectionView, finishWith action: CaptureAction, image: CGImage?, pointSize: CGSize) {
-        close()
+        close(restoreFocus: action != .extractText)
         guard let image else { return }
         switch action {
         case .copy:
             ImageExporter.copyToPasteboard(image, pointSize: pointSize)
+        case .extractText:
+            TextResultWindowController.show(recognizing: image)
         case .cancel:
             break
         }

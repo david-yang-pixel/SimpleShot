@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 enum CaptureAction {
-    case copy, cancel
+    case copy, extractText, cancel
 }
 
 @MainActor
@@ -519,6 +519,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
     }
 
     func toolbarUndo(_ toolbar: ToolbarView) { undo() }
+    func toolbarExtractText(_ toolbar: ToolbarView) { finish(.extractText) }
     func toolbarCancel(_ toolbar: ToolbarView) { finish(.cancel) }
     func toolbarConfirm(_ toolbar: ToolbarView) { finish(.copy) }
 
@@ -530,13 +531,14 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
             delegate?.selectionView(self, finishWith: .cancel, image: nil, pointSize: .zero)
             return
         }
-        let image = renderOutput()
+        // 提取文字时用原始截图，避免标注干扰识别
+        let image = renderOutput(includeAnnotations: action != .extractText)
         delegate?.selectionView(self, finishWith: image == nil ? .cancel : action,
                                 image: image, pointSize: selection.size)
     }
 
     /// 按原始像素分辨率导出选区（含标注）
-    private func renderOutput() -> CGImage? {
+    private func renderOutput(includeAnnotations: Bool = true) -> CGImage? {
         let s = pixelScale
         let image = shot.image
         // CGImage 坐标原点在左上
@@ -548,7 +550,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
             .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
         guard !pixelRect.isNull, pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
 
-        if annotations.isEmpty { return image.cropping(to: pixelRect) }
+        if annotations.isEmpty || !includeAnnotations { return image.cropping(to: pixelRect) }
 
         let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
         guard let ctx = CGContext(data: nil, width: Int(pixelRect.width), height: Int(pixelRect.height),
