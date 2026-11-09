@@ -2,7 +2,9 @@
 # 构建 SimpleShot.app
 #   ./scripts/build.sh            构建到 build/SimpleShot.app
 #   ./scripts/build.sh --install  构建并安装到 /Applications
-#   ./scripts/build.sh --dmg      构建并打包成 build/SimpleShot.dmg
+#   ./scripts/build.sh --dmg      构建并打包成 build/SimpleShot-<版本>.dmg
+#
+# 版本号写在仓库根目录的 VERSION 文件里。
 #
 # 签名：默认使用临时签名（ad-hoc）。临时签名每次构建都会变，macOS 可能要求重新授予
 # “屏幕录制”权限。想避免这一点，可在“钥匙串访问”里创建一个自签名的“代码签名”证书，
@@ -30,6 +32,12 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# 版本号：VERSION 文件；构建号：git 提交次数
+VERSION="$(tr -d '[:space:]' < VERSION)"
+BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
+echo "    版本 $VERSION (build $BUILD_NUMBER)"
 if [ -f Resources/AppIcon.icns ]; then
     cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
     /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP/Contents/Info.plist" >/dev/null
@@ -40,7 +48,7 @@ codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" "$APP"
 
 if [ "${1:-}" = "--dmg" ]; then
     echo "==> 制作 DMG"
-    DMG="build/${APP_NAME}.dmg"
+    DMG="build/${APP_NAME}-${VERSION}.dmg"
     STAGE="build/dmg"
     rm -rf "$STAGE" "$DMG"
     mkdir -p "$STAGE"

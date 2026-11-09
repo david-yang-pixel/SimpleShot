@@ -15,7 +15,7 @@
 
 每次推送到 `main` 都会由 GitHub Actions 自动编译（同时支持 Apple Silicon 和 Intel）：
 
-1. 下载 [SimpleShot.dmg](https://github.com/david-yang-pixel/SimpleShot/releases/download/latest/SimpleShot.dmg)，双击打开，把 SimpleShot 拖到「应用程序」文件夹；
+1. 到 [Releases 最新版本](https://github.com/david-yang-pixel/SimpleShot/releases/latest) 下载 `SimpleShot-<版本>.dmg`，双击打开，把 SimpleShot 拖到「应用程序」文件夹；
 2. 首次打开：由于没有 Apple 开发者签名，系统会提示“无法验证开发者”。点「完成」，然后到
    **系统设置 › 隐私与安全性**，在页面下方点「仍要打开」。
    （或在终端执行 `xattr -dr com.apple.quarantine /Applications/SimpleShot.app` 后再打开）
@@ -85,3 +85,9 @@ Sources/SimpleShot/
   ImageExporter.swift          复制到剪贴板 / 保存 PNG
   Helpers.swift                权限提示、Toast
 ```
+
+## 版本号
+
+- 版本号写在根目录的 `VERSION` 文件（如 `1.0.0`），构建号自动取 git 提交次数；
+- 在菜单栏图标 › 关于 SimpleShot，或设置窗口底部可以看到当前版本；
+- 发布新版本：修改 `VERSION` 并推送到 `main`，GitHub Actions 会自动创建对应的 `v<版本>` Release。

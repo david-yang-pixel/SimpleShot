@@ -71,6 +71,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         usage.textColor = .secondaryLabelColor
         usage.preferredMaxLayoutWidth = 300
 
+        let versionLabel = NSTextField(labelWithString: "SimpleShot \(AppInfo.versionString)")
+        versionLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        versionLabel.textColor = .tertiaryLabelColor
+
         func row(_ views: [NSView]) -> NSStackView {
             let s = NSStackView(views: views)
             s.orientation = .horizontal
@@ -84,6 +88,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             [label("保存位置："), row([directoryLabel, chooseButton])],
             [NSGridCell.emptyContentView, loginCheckbox],
             [NSGridCell.emptyContentView, usage],
+            [NSGridCell.emptyContentView, versionLabel],
         ])
         grid.rowSpacing = 10
         grid.columnSpacing = 8

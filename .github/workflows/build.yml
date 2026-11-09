@@ -13,6 +13,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 构建号 = 提交次数，需要完整历史
 
       - name: Show toolchain
         run: |
@@ -24,19 +26,39 @@ jobs:
         run: |
           UNIVERSAL=1 ./scripts/build.sh --dmg
           lipo -info build/SimpleShot.app/Contents/MacOS/SimpleShot
-          ls -lh build/SimpleShot.dmg
+          echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+          ls -lh build/*.dmg
 
       - uses: actions/upload-artifact@v4
         with:
-          name: SimpleShot
-          path: build/SimpleShot.dmg
+          name: SimpleShot-${{ env.VERSION }}-build${{ env.BUILD_NUMBER }}
+          path: build/SimpleShot-${{ env.VERSION }}.dmg
 
-      - name: Publish "latest" release
+      # 每个版本号一个 Release（v1.0.0）；同一版本号的后续提交会覆盖该版本的安装包。
+      # 发布新版本：修改 VERSION 文件即可。
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          TAG="v${VERSION}"
+          DMG="build/SimpleShot-${VERSION}.dmg"
+          NOTES="SimpleShot ${VERSION}（build ${BUILD_NUMBER}，提交 ${GITHUB_SHA::7}）
+
+          下载 SimpleShot-${VERSION}.dmg，打开后把 SimpleShot 拖到「应用程序」文件夹。首次打开方法见 README。"
+
+          # 清理早期的 latest 发布
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest build/SimpleShot.dmg \
-            --title "SimpleShot（最新构建）" \
-            --notes "自动构建自 ${GITHUB_SHA::7}。下载 SimpleShot.dmg，打开后把 SimpleShot 拖到“应用程序”文件夹。首次打开方法见 README。" \
-            --target "$GITHUB_SHA"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            git tag -f "$TAG" "$GITHUB_SHA"
+            git push -f origin "refs/tags/$TAG"
+            gh release upload "$TAG" "$DMG" --clobber
+            gh release edit "$TAG" --notes "$NOTES" --latest
+          else
+            gh release create "$TAG" "$DMG" \
+              --title "SimpleShot ${VERSION}" \
+              --notes "$NOTES" \
+              --target "$GITHUB_SHA" \
+              --latest
+          fi
