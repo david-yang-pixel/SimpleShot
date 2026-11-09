@@ -57,6 +57,12 @@ cd SimpleShot
 **提取文字**：选好区域后点工具条上的「提取文字」，用系统自带的 Vision 框架离线识别（简体中文 + 英文），
 结果显示在弹窗中，可以修改、选中部分 `⌘C` 复制，或点「复制全部」（`⌘↩`）。
 
+## 快捷键突然失灵？
+
+如果某个应用开启了 macOS 的「安全输入」（通常是密码输入框处于激活状态，例如浏览器登录页），
+系统会屏蔽**所有应用**的全局快捷键（SimpleShot、微信截图等都会失灵）。
+此时 SimpleShot 的菜单栏图标会变成 ⚠️，菜单里会显示是哪个应用占用了安全输入，点击可查看解决办法。
+
 ## 快捷键冲突检测
 
 在设置里录入新快捷键时会依次检查：
@@ -89,6 +95,7 @@ Sources/SimpleShot/
   ToolbarView.swift            标注工具条
   Annotation.swift             标注模型与绘制
   ImageExporter.swift          复制到剪贴板
+  SecureInputMonitor.swift     检测“安全输入”导致的快捷键失灵
   TextRecognizer.swift         文字识别 + 识别结果窗口
   Helpers.swift                权限提示、Toast
 ```

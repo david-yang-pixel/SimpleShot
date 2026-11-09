@@ -5,6 +5,8 @@ import Carbon.HIToolbox
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var captureItem: NSMenuItem!
+    private var secureInputItem: NSMenuItem!
+    private var secureInputSeparator: NSMenuItem!
     private let capture = CaptureController()
     private lazy var settingsController = SettingsWindowController()
 
@@ -30,6 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Updater.shared.startAutomaticChecks()
 
+        SecureInputMonitor.shared.onChange = { [weak self] blocker in
+            self?.updateSecureInputState(blocker)
+        }
+        SecureInputMonitor.shared.start()
+
         if !ScreenCapturer.hasPermission() {
             ScreenCapturer.requestPermission()
         }
@@ -39,13 +46,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
-            let image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "SimpleShot")
-            image?.isTemplate = true
-            button.image = image
-        }
+        setStatusIcon(blocked: false)
 
         let menu = NSMenu()
+        // 安全输入警告（平时隐藏）
+        secureInputItem = NSMenuItem(title: "", action: #selector(showSecureInputHelp), keyEquivalent: "")
+        secureInputItem.target = self
+        secureInputItem.isHidden = true
+        menu.addItem(secureInputItem)
+        secureInputSeparator = NSMenuItem.separator()
+        secureInputSeparator.isHidden = true
+        menu.addItem(secureInputSeparator)
         captureItem = NSMenuItem(title: "截图", action: #selector(captureFromMenu), keyEquivalent: "")
         captureItem.target = self
         menu.addItem(captureItem)
@@ -116,6 +127,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         settingsController.show()
+    }
+
+    // MARK: - 安全输入提醒
+
+    private func setStatusIcon(blocked: Bool) {
+        guard let button = statusItem.button else { return }
+        let name = blocked ? "exclamationmark.triangle" : "camera.viewfinder"
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: "SimpleShot")
+        image?.isTemplate = true
+        button.image = image
+    }
+
+    private func updateSecureInputState(_ blocker: SecureInputBlocker?) {
+        let blocked = blocker != nil
+        setStatusIcon(blocked: blocked)
+        secureInputItem.isHidden = !blocked
+        secureInputSeparator.isHidden = !blocked
+        if let blocker {
+            let text = "⚠️ 快捷键暂不可用：\(blocker.name) 开启了安全输入"
+            secureInputItem.title = text
+            statusItem.button?.toolTip = text
+        } else {
+            statusItem.button?.toolTip = "SimpleShot"
+        }
+    }
+
+    @objc private func showSecureInputHelp() {
+        guard let blocker = SecureInputMonitor.shared.blocker else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "\(blocker.name) 开启了“安全输入”"
+        alert.informativeText = """
+            开启安全输入时，macOS 会屏蔽所有应用的全局快捷键（SimpleShot、微信截图等都会失灵）。\
+            通常是该应用里有密码输入框正处于激活状态。
+
+            解决办法：
+            1. 切换到 \(blocker.name)，在页面空白处点一下让光标离开密码框，或关闭登录页面；
+            2. 仍不行就退出 \(blocker.name) 并重新打开。
+
+            安全输入释放后，这条提醒会自动消失。也可以先从菜单栏点「截图」使用。
+            """
+        let app = blocker.pid > 0 ? NSRunningApplication(processIdentifier: blocker.pid) : nil
+        if app != nil {
+            alert.addButton(withTitle: "切换到 \(blocker.name)")
+        }
+        alert.addButton(withTitle: "好")
+        if alert.runModal() == .alertFirstButtonReturn, let app {
+            app.activate(options: [])
+        }
     }
 
     @objc private func checkForUpdates() {

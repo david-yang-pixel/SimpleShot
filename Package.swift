@@ -11,6 +11,7 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),
+                .linkedFramework("IOKit"),
                 .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("Vision"),
