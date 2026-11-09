@@ -14,9 +14,15 @@ APP_NAME="SimpleShot"
 APP="build/${APP_NAME}.app"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 
+# UNIVERSAL=1 时同时编译 Apple Silicon 与 Intel（需要完整 Xcode）
+BUILD_ARGS=(-c release)
+if [ "${UNIVERSAL:-0}" = "1" ]; then
+    BUILD_ARGS+=(--arch arm64 --arch x86_64)
+fi
+
 echo "==> 编译 (release)"
-swift build -c release
-BIN_DIR="$(swift build -c release --show-bin-path)"
+swift build "${BUILD_ARGS[@]}"
+BIN_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 
 echo "==> 打包 ${APP}"
 rm -rf "$APP"
