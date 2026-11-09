@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import ScreenCaptureKit
 
 /// 某块屏幕在按下快捷键瞬间的“冻结画面”。
@@ -22,9 +23,8 @@ enum ScreenCapturer {
     }
 
     static func captureAllScreens() async throws -> [ScreenShot] {
-        // 先记录窗口布局，再抓取画面，两者几乎同时
-        let windows = onScreenWindowRects()
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        let windows = onScreenWindowRects(content: content)
 
         var shots: [ScreenShot] = []
         for screen in NSScreen.screens {
@@ -52,26 +52,48 @@ enum ScreenCapturer {
         return shots
     }
 
+    private static let log = Logger(subsystem: "io.github.simpleshot.SimpleShot", category: "capture")
+
     /// 屏幕上的普通窗口、Dock、菜单栏等（全局 Cocoa 坐标），从前到后。
-    private static func onScreenWindowRects() -> [CGRect] {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
-                                                    kCGNullWindowID) as? [[String: Any]] else { return [] }
+    /// 窗口位置来自 ScreenCaptureKit（新系统上旧的 CGWindowList 可能拿不到其他应用的窗口），
+    /// CGWindowList 只用来辅助确定前后顺序和过滤透明窗口，拿不到也不影响。
+    private static func onScreenWindowRects(content: SCShareableContent) -> [CGRect] {
         let myPID = ProcessInfo.processInfo.processIdentifier
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        let maxLayer = Int(CGWindowLevelForKey(.statusWindow))
 
-        return list.compactMap { info -> CGRect? in
-            guard let pid = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value, pid != myPID,
-                  let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue,
-                  layer >= 0, layer <= Int(CGWindowLevelForKey(.statusWindow)),
-                  let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
-                  let b = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
-            else { return nil }
+        var rank: [CGWindowID: Int] = [:]
+        var transparent: Set<CGWindowID> = []
+        let cgList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                kCGNullWindowID) as? [[String: Any]] ?? []
+        for (index, info) in cgList.enumerated() {
+            guard let number = (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value else { continue }
+            rank[number] = index
             if let alpha = (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue, alpha < 0.01 {
-                return nil
+                transparent.insert(number)
             }
-            guard b.width >= 20, b.height >= 20 else { return nil }
-            // CG 坐标（左上原点）→ Cocoa 坐标（左下原点）
-            return CGRect(x: b.minX, y: primaryHeight - b.maxY, width: b.width, height: b.height)
+        }
+
+        let candidates = content.windows.enumerated().filter { _, w in
+            w.isOnScreen
+                && w.windowLayer >= 0 && w.windowLayer <= maxLayer
+                && w.frame.width >= 20 && w.frame.height >= 20
+                && w.owningApplication?.processID != myPID
+                && !transparent.contains(w.windowID)
+        }
+        // 有 CGWindowList 的顺序就按它排（从前到后），否则保持 ScreenCaptureKit 的顺序
+        let ordered = candidates.sorted { a, b in
+            let ra = rank[a.element.windowID] ?? (Int.max / 2 + a.offset)
+            let rb = rank[b.element.windowID] ?? (Int.max / 2 + b.offset)
+            return ra < rb
+        }
+
+        log.info("windows: sc=\(content.windows.count, privacy: .public) cg=\(cgList.count, privacy: .public) usable=\(ordered.count, privacy: .public)")
+
+        // CG 坐标（左上原点）→ Cocoa 坐标（左下原点）
+        return ordered.map { _, w in
+            let f = w.frame
+            return CGRect(x: f.minX, y: primaryHeight - f.maxY, width: f.width, height: f.height)
         }
     }
 }
