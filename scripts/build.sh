@@ -38,20 +38,44 @@ BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
 echo "    版本 $VERSION (build $BUILD_NUMBER)"
-# 图标：用 Apple 的 sips + iconutil 从 1024×1024 母版生成 .icns
+# 图标：从 1024×1024 母版生成
+#  - Assets.car（资源目录，macOS 26+ 显示图标所需，需要完整 Xcode 的 actool）
+#  - AppIcon.icns（兼容旧系统；没有 Xcode 时用 iconutil 生成）
 if [ -f Resources/AppIcon.png ]; then
     ICONSET="build/AppIcon.iconset"
-    rm -rf "$ICONSET"
-    mkdir -p "$ICONSET"
+    XCASSETS="build/Assets.xcassets"
+    APPICONSET="$XCASSETS/AppIcon.appiconset"
+    rm -rf "$ICONSET" "$XCASSETS"
+    mkdir -p "$ICONSET" "$APPICONSET"
+    IMAGES=""
     for s in 16 32 128 256 512; do
-        sips -z $s $s Resources/AppIcon.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
         d=$((s * 2))
+        sips -z $s $s Resources/AppIcon.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
         sips -z $d $d Resources/AppIcon.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+        cp "$ICONSET/icon_${s}x${s}.png" "$ICONSET/icon_${s}x${s}@2x.png" "$APPICONSET/"
+        IMAGES="$IMAGES{\"idiom\":\"mac\",\"size\":\"${s}x${s}\",\"scale\":\"1x\",\"filename\":\"icon_${s}x${s}.png\"},"
+        IMAGES="$IMAGES{\"idiom\":\"mac\",\"size\":\"${s}x${s}\",\"scale\":\"2x\",\"filename\":\"icon_${s}x${s}@2x.png\"},"
     done
-    iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
-    rm -rf "$ICONSET"
+    echo "{\"images\":[${IMAGES%,}],\"info\":{\"version\":1,\"author\":\"xcode\"}}" > "$APPICONSET/Contents.json"
+    echo '{"info":{"version":1,"author":"xcode"}}' > "$XCASSETS/Contents.json"
+
+    if xcrun --find actool >/dev/null 2>&1; then
+        xcrun actool "$XCASSETS" --compile "$APP/Contents/Resources" \
+            --platform macosx --minimum-deployment-target 14.0 \
+            --app-icon AppIcon --output-partial-info-plist build/AssetsInfo.plist \
+            --output-format human-readable-text --notices --warnings
+        /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" "$APP/Contents/Info.plist" >/dev/null
+        echo "    已生成 Assets.car"
+    else
+        echo "    未找到 actool（需要完整 Xcode），仅生成 .icns"
+    fi
+    # actool 会顺带生成 AppIcon.icns；没有的话用 iconutil 生成
+    if [ ! -f "$APP/Contents/Resources/AppIcon.icns" ]; then
+        iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+    fi
     /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP/Contents/Info.plist" >/dev/null
-    echo "    图标已生成"
+    rm -rf "$ICONSET" "$XCASSETS" build/AssetsInfo.plist
+    ls -la "$APP/Contents/Resources"
 fi
 
 echo "==> 签名 (${SIGN_IDENTITY})"

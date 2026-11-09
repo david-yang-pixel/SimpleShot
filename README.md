@@ -68,7 +68,7 @@ cd SimpleShot
 
 ## 图标
 
-`Resources/AppIcon.svg` 是图标源文件，`AppIcon.png`（1024×1024）由它导出；构建时用 `sips` + `iconutil` 生成 `.icns` 并打包进应用。
+`Resources/AppIcon.svg` 是图标源文件，`AppIcon.png`（1024×1024）由它导出；构建时用 `actool` 编译成资源目录 `Assets.car`（macOS 26+ 需要），并生成兼容旧系统的 `.icns`。
 
 ## 项目结构
 
