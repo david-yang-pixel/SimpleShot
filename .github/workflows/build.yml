@@ -20,27 +20,23 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Build universal app (Apple Silicon + Intel)
-        run: UNIVERSAL=1 ./scripts/build.sh
-
-      - name: Zip
+      - name: Build universal app and DMG (Apple Silicon + Intel)
         run: |
-          cd build
-          ditto -c -k --keepParent SimpleShot.app SimpleShot.zip
-          ls -lh SimpleShot.zip
-          lipo -info SimpleShot.app/Contents/MacOS/SimpleShot
+          UNIVERSAL=1 ./scripts/build.sh --dmg
+          lipo -info build/SimpleShot.app/Contents/MacOS/SimpleShot
+          ls -lh build/SimpleShot.dmg
 
       - uses: actions/upload-artifact@v4
         with:
           name: SimpleShot
-          path: build/SimpleShot.zip
+          path: build/SimpleShot.dmg
 
       - name: Publish "latest" release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest build/SimpleShot.zip \
+          gh release create latest build/SimpleShot.dmg \
             --title "SimpleShot（最新构建）" \
-            --notes "自动构建自 ${GITHUB_SHA::7}。下载 SimpleShot.zip，解压后把 SimpleShot.app 拖到“应用程序”文件夹。首次打开方法见 README。" \
+            --notes "自动构建自 ${GITHUB_SHA::7}。下载 SimpleShot.dmg，打开后把 SimpleShot 拖到“应用程序”文件夹。首次打开方法见 README。" \
             --target "$GITHUB_SHA"
