@@ -11,7 +11,16 @@
 - macOS 14 (Sonoma) 或更新
 - Xcode 命令行工具（不需要完整 Xcode）：`xcode-select --install`
 
-## 构建与安装
+## 直接下载（推荐）
+
+每次推送到 `main` 都会由 GitHub Actions 自动编译（同时支持 Apple Silicon 和 Intel）：
+
+1. 下载 [SimpleShot.zip](https://github.com/david-yang-pixel/SimpleShot/releases/download/latest/SimpleShot.zip)，解压，把 `SimpleShot.app` 拖到「应用程序」文件夹；
+2. 首次打开：由于没有 Apple 开发者签名，系统会提示“无法验证开发者”。点「完成」，然后到
+   **系统设置 › 隐私与安全性**，在页面下方点「仍要打开」。
+   （或在终端执行 `xattr -dr com.apple.quarantine /Applications/SimpleShot.app` 后再打开）
+
+## 从源码构建
 
 ```bash
 git clone https://github.com/david-yang-pixel/SimpleShot.git
