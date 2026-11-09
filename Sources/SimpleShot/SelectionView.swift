@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 enum CaptureAction {
-    case copy, save, cancel
+    case copy, cancel
 }
 
 @MainActor
@@ -369,9 +369,6 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
         case kVK_ANSI_C:
             finish(.copy)
             return true
-        case kVK_ANSI_S:
-            finish(.save)
-            return true
         default:
             return super.performKeyEquivalent(with: event)
         }
@@ -522,7 +519,6 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
     }
 
     func toolbarUndo(_ toolbar: ToolbarView) { undo() }
-    func toolbarSave(_ toolbar: ToolbarView) { finish(.save) }
     func toolbarCancel(_ toolbar: ToolbarView) { finish(.cancel) }
     func toolbarConfirm(_ toolbar: ToolbarView) { finish(.copy) }
 

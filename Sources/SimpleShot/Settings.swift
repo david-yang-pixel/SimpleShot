@@ -8,7 +8,6 @@ final class Settings {
     private let defaults = UserDefaults.standard
     private enum Key {
         static let shortcut = "shortcut"
-        static let saveDirectory = "saveDirectory"
         static let autoCheckUpdates = "autoCheckUpdates"
         static let skippedVersion = "skippedVersion"
         static let lastUpdateCheck = "lastUpdateCheck"
@@ -39,18 +38,6 @@ final class Settings {
         }
         set {
             defaults.set(try? JSONEncoder().encode(newValue), forKey: Key.shortcut)
-        }
-    }
-
-    var saveDirectory: URL {
-        get {
-            if let path = defaults.string(forKey: Key.saveDirectory) {
-                return URL(fileURLWithPath: path, isDirectory: true)
-            }
-            return FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
-        }
-        set {
-            defaults.set(newValue.path, forKey: Key.saveDirectory)
         }
     }
 

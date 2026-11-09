@@ -5,7 +5,6 @@ import Carbon.HIToolbox
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let recorder = ShortcutRecorder()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
-    private let directoryLabel = NSTextField(labelWithString: "")
     private let loginCheckbox = NSButton(checkboxWithTitle: "开机时自动启动", target: nil, action: nil)
     private let updateCheckbox = NSButton(checkboxWithTitle: "自动检查更新", target: nil, action: nil)
 
@@ -34,8 +33,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     private func refresh() {
         recorder.shortcut = Settings.shared.shortcut
-        directoryLabel.stringValue = (Settings.shared.saveDirectory.path as NSString).abbreviatingWithTildeInPath
-        directoryLabel.toolTip = Settings.shared.saveDirectory.path
         loginCheckbox.state = Settings.shared.launchAtLogin ? .on : .off
         updateCheckbox.state = Settings.shared.autoCheckUpdates ? .on : .off
     }
@@ -57,12 +54,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.preferredMaxLayoutWidth = 300
 
-        directoryLabel.lineBreakMode = .byTruncatingMiddle
-        directoryLabel.translatesAutoresizingMaskIntoConstraints = false
-        directoryLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
-        directoryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let chooseButton = NSButton(title: "更改…", target: self, action: #selector(chooseDirectory))
-        chooseButton.bezelStyle = .rounded
 
         loginCheckbox.target = self
         loginCheckbox.action = #selector(toggleLaunchAtLogin)
@@ -72,7 +63,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         checkNowButton.bezelStyle = .rounded
 
         let usage = NSTextField(wrappingLabelWithString:
-            "使用：悬停单击选窗口，桌面单击截全屏，拖动框选区域。\n回车 / 双击复制，⌘S 保存，Esc 取消，右键重选。")
+            "使用：悬停单击选窗口，桌面单击截全屏，拖动框选区域。\n截好后回车 / 双击即复制到剪贴板，Esc 取消，右键重选。")
         usage.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         usage.textColor = .secondaryLabelColor
         usage.preferredMaxLayoutWidth = 300
@@ -91,7 +82,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let grid = NSGridView(views: [
             [label("截图快捷键："), row([recorder, resetButton])],
             [NSGridCell.emptyContentView, statusLabel],
-            [label("保存位置："), row([directoryLabel, chooseButton])],
             [NSGridCell.emptyContentView, loginCheckbox],
             [NSGridCell.emptyContentView, row([updateCheckbox, checkNowButton])],
             [NSGridCell.emptyContentView, usage],
@@ -102,7 +92,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
         grid.row(at: 1).topPadding = -4
-        grid.row(at: 5).topPadding = 8
+        grid.row(at: 4).topPadding = 8
         grid.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(grid)
         NSLayoutConstraint.activate([
@@ -140,22 +130,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     @objc private func resetShortcut() {
         recorder.stopRecording()
         apply(.defaultShortcut)
-    }
-
-    @objc private func chooseDirectory() {
-        guard let window else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = Settings.shared.saveDirectory
-        panel.prompt = "选择"
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
-            Settings.shared.saveDirectory = url
-            self?.refresh()
-        }
     }
 
     @objc private func toggleLaunchAtLogin() {

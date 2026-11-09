@@ -23,26 +23,4 @@ enum ImageExporter {
             pb.setData(tiff, forType: .tiff)
         }
     }
-
-    @discardableResult
-    static func save(_ image: CGImage, pointSize: CGSize) throws -> URL {
-        let rep = bitmap(image, pointSize: pointSize)
-        guard let data = rep.representation(using: .png, properties: [:]) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        let dir = Settings.shared.saveDirectory
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-        let base = "截图 \(formatter.string(from: Date()))"
-        var url = dir.appendingPathComponent("\(base).png")
-        var n = 2
-        while FileManager.default.fileExists(atPath: url.path) {
-            url = dir.appendingPathComponent("\(base) (\(n)).png")
-            n += 1
-        }
-        try data.write(to: url, options: .atomic)
-        return url
-    }
 }

@@ -1,6 +1,6 @@
 # SimpleShot
 
-一个简约的 macOS 截图工具：区域 / 窗口 / 全屏截图 + 截图后标注，完成后复制到剪贴板。
+一个简约的 macOS 截图工具：区域 / 窗口 / 全屏截图 + 截图后标注，完成后直接复制到剪贴板（不存文件）。
 
 - 原生 Swift + AppKit，常驻菜单栏，不占 Dock
 - 默认快捷键 `⌥A`，可在设置中修改，并自动检测冲突
@@ -48,7 +48,6 @@ cd SimpleShot
 | 在桌面上单击 | 截取整个屏幕 |
 | 拖动 | 框选区域；选好后可拖动、拖边角调整，方向键微调（⇧ 每次 10 点） |
 | 回车 / 双击选区 / ✓ | 复制到剪贴板 |
-| `⌘S` / 保存按钮 | 保存 PNG 到设置的文件夹（默认桌面） |
 | `⌘Z` | 撤销上一个标注 |
 | `Esc` | 取消截图 |
 | 右键 | 重新选择（已在选择阶段则取消） |
@@ -79,14 +78,14 @@ Sources/SimpleShot/
   AppDelegate.swift            菜单栏图标与菜单
   HotKeyManager.swift          全局快捷键注册 + 冲突检测
   Shortcut.swift               快捷键模型与显示
-  Settings.swift               偏好设置（快捷键 / 保存位置 / 开机启动）
+  Settings.swift               偏好设置（快捷键 / 开机启动 / 自动更新）
   SettingsWindowController.swift  设置窗口 + 快捷键录制按钮
   ScreenCapturer.swift         ScreenCaptureKit 截屏 + 窗口位置
   CaptureController.swift      截图流程、全屏遮罩窗口
   SelectionView.swift          选区、放大镜、标注交互、导出
   ToolbarView.swift            标注工具条
   Annotation.swift             标注模型与绘制
-  ImageExporter.swift          复制到剪贴板 / 保存 PNG
+  ImageExporter.swift          复制到剪贴板
   Helpers.swift                权限提示、Toast
 ```
 

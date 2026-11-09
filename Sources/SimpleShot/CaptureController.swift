@@ -133,14 +133,6 @@ final class CaptureController: SelectionViewDelegate {
         switch action {
         case .copy:
             ImageExporter.copyToPasteboard(image, pointSize: pointSize)
-        case .save:
-            do {
-                let url = try ImageExporter.save(image, pointSize: pointSize)
-                Toast.show("已保存到「\(url.deletingLastPathComponent().lastPathComponent)」")
-            } catch {
-                ImageExporter.copyToPasteboard(image, pointSize: pointSize)
-                Toast.show("保存失败，已复制到剪贴板")
-            }
         case .cancel:
             break
         }
