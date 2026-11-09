@@ -90,4 +90,16 @@ Sources/SimpleShot/
 
 - 版本号写在根目录的 `VERSION` 文件（如 `1.0.0`），构建号自动取 git 提交次数；
 - 在菜单栏图标 › 关于 SimpleShot，或设置窗口底部可以看到当前版本；
-- 发布新版本：修改 `VERSION` 并推送到 `main`，GitHub Actions 会自动创建对应的 `v<版本>` Release。
+- 发布新版本：修改 `VERSION`，在 `CHANGELOG.md` 写上该版本的更新内容，推送到 `main`，
+  GitHub Actions 会自动创建对应的 `v<版本>` Release（更新内容会显示在应用内的更新提示里）。
+
+## 应用内更新
+
+- 菜单栏图标 › 检查更新…，或设置窗口中的「立即检查」；默认每天自动检查一次（可在设置中关闭）；
+- 发现新版本后点「立即更新」：自动下载、校验签名、替换「应用程序」中的 SimpleShot 并重新打开；
+- 安装包必须与当前版本由同一证书签名才会安装，防止被替换。
+
+### 签名证书
+
+CI 使用一个固定的自签名证书签名（存放在仓库的 Actions Secrets：`MACOS_CERT_P12`、`MACOS_CERT_PASSWORD`），
+因此更新后签名不变，系统不会要求重新授予“屏幕录制”权限。未配置这两个 Secret 时，CI 会使用临时签名且不发布 Release。

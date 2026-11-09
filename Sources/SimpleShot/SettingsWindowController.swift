@@ -7,6 +7,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private let directoryLabel = NSTextField(labelWithString: "")
     private let loginCheckbox = NSButton(checkboxWithTitle: "开机时自动启动", target: nil, action: nil)
+    private let updateCheckbox = NSButton(checkboxWithTitle: "自动检查更新", target: nil, action: nil)
 
     private static let hint = "点击按钮后按下新的组合键；按 Esc 取消录制。"
 
@@ -36,6 +37,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         directoryLabel.stringValue = (Settings.shared.saveDirectory.path as NSString).abbreviatingWithTildeInPath
         directoryLabel.toolTip = Settings.shared.saveDirectory.path
         loginCheckbox.state = Settings.shared.launchAtLogin ? .on : .off
+        updateCheckbox.state = Settings.shared.autoCheckUpdates ? .on : .off
     }
 
     // MARK: - UI
@@ -64,6 +66,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         loginCheckbox.target = self
         loginCheckbox.action = #selector(toggleLaunchAtLogin)
+        updateCheckbox.target = self
+        updateCheckbox.action = #selector(toggleAutoUpdate)
+        let checkNowButton = NSButton(title: "立即检查", target: self, action: #selector(checkUpdatesNow))
+        checkNowButton.bezelStyle = .rounded
 
         let usage = NSTextField(wrappingLabelWithString:
             "使用：悬停单击选窗口，桌面单击截全屏，拖动框选区域。\n回车 / 双击复制，⌘S 保存，Esc 取消，右键重选。")
@@ -87,6 +93,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             [NSGridCell.emptyContentView, statusLabel],
             [label("保存位置："), row([directoryLabel, chooseButton])],
             [NSGridCell.emptyContentView, loginCheckbox],
+            [NSGridCell.emptyContentView, row([updateCheckbox, checkNowButton])],
             [NSGridCell.emptyContentView, usage],
             [NSGridCell.emptyContentView, versionLabel],
         ])
@@ -95,7 +102,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
         grid.row(at: 1).topPadding = -4
-        grid.row(at: 4).topPadding = 8
+        grid.row(at: 5).topPadding = 8
         grid.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(grid)
         NSLayoutConstraint.activate([
@@ -158,6 +165,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             setStatus("设置开机启动失败：\(error.localizedDescription)", isError: true)
         }
         loginCheckbox.state = Settings.shared.launchAtLogin ? .on : .off
+    }
+
+    @objc private func toggleAutoUpdate() {
+        Settings.shared.autoCheckUpdates = updateCheckbox.state == .on
+    }
+
+    @objc private func checkUpdatesNow() {
+        Updater.shared.checkForUpdates()
     }
 
     // MARK: - NSWindowDelegate

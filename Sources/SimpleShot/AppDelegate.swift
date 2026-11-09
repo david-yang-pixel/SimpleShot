@@ -28,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settingsController.show(message: message, isError: true)
         }
 
+        Updater.shared.startAutomaticChecks()
+
         if !ScreenCapturer.hasPermission() {
             ScreenCapturer.requestPermission()
         }
@@ -54,6 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let aboutItem = NSMenuItem(title: "关于 SimpleShot", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
         menu.addItem(aboutItem)
+        let updateItem = NSMenuItem(title: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "退出 SimpleShot", action: #selector(NSApplication.terminate(_:)),
                                 keyEquivalent: "q"))
@@ -107,6 +112,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         settingsController.show()
+    }
+
+    @objc private func checkForUpdates() {
+        Updater.shared.checkForUpdates()
     }
 
     @objc private func showAbout() {

@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # 构建号 = 提交次数，需要完整历史
+          fetch-depth: 0   # 构建号 = 提交次数；更新日志需要标签
 
       - name: Show toolchain
         run: |
@@ -22,10 +22,42 @@ jobs:
           xcodebuild -version
           swift --version
 
+      # 固定的自签名证书（存放在仓库 Secrets 中），保证每次构建的签名一致：
+      # 更新后系统不会要求重新授予屏幕录制权限，应用内更新也靠它校验安装包。
+      - name: Import signing certificate
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$CERT_P12" ]; then
+            echo "::warning::未配置 MACOS_CERT_P12，将使用临时签名，并且不会发布 Release"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KC_PASS="$(openssl rand -hex 16)"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KC_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PASS" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PASS" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          # 信任该自签名证书用于代码签名
+          openssl pkcs12 -in "$RUNNER_TEMP/cert.p12" -passin env:CERT_PASSWORD -nokeys -out "$RUNNER_TEMP/cert.pem" 2>/dev/null \
+            || openssl pkcs12 -legacy -in "$RUNNER_TEMP/cert.p12" -passin env:CERT_PASSWORD -nokeys -out "$RUNNER_TEMP/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem" || true
+          HASH="$(openssl x509 -in "$RUNNER_TEMP/cert.pem" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')"
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/cert.pem"
+          security find-identity -p codesigning "$KEYCHAIN"
+          echo "SIGN_IDENTITY=$HASH" >> "$GITHUB_ENV"
+          echo "SIGNED=1" >> "$GITHUB_ENV"
+
       - name: Build universal app and DMG (Apple Silicon + Intel)
         run: |
           UNIVERSAL=1 ./scripts/build.sh --dmg
           lipo -info build/SimpleShot.app/Contents/MacOS/SimpleShot
+          codesign -dvv build/SimpleShot.app 2>&1 | grep -E "Identifier|Authority|Signature" || true
+          codesign -d -r- build/SimpleShot.app 2>&1 | grep designated || true
           echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
           ls -lh build/*.dmg
@@ -35,30 +67,31 @@ jobs:
           name: SimpleShot-${{ env.VERSION }}-build${{ env.BUILD_NUMBER }}
           path: build/SimpleShot-${{ env.VERSION }}.dmg
 
-      # 每个版本号一个 Release（v1.0.0）；同一版本号的后续提交会覆盖该版本的安装包。
-      # 发布新版本：修改 VERSION 文件即可。
+      # 每个版本号一个 Release（v1.1.0）；同一版本号的后续提交会覆盖该版本的安装包。
+      # 发布新版本：修改 VERSION，并在 CHANGELOG.md 中写上该版本的更新内容。
       - name: Publish release
+        if: env.SIGNED == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v${VERSION}"
           DMG="build/SimpleShot-${VERSION}.dmg"
-          NOTES="SimpleShot ${VERSION}（build ${BUILD_NUMBER}，提交 ${GITHUB_SHA::7}）
+          CHANGES="$(awk -v v="$VERSION" '/^## /{p=($2==v); next} p' CHANGELOG.md | sed '/^[[:space:]]*$/d')"
+          [ -z "$CHANGES" ] && CHANGES="- 常规更新"
+          printf '%s\n\n（build %s，提交 %s）\n' "$CHANGES" "$BUILD_NUMBER" "${GITHUB_SHA::7}" > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
 
-          下载 SimpleShot-${VERSION}.dmg，打开后把 SimpleShot 拖到「应用程序」文件夹。首次打开方法见 README。"
-
-          # 清理早期的 latest 发布
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             git tag -f "$TAG" "$GITHUB_SHA"
             git push -f origin "refs/tags/$TAG"
             gh release upload "$TAG" "$DMG" --clobber
-            gh release edit "$TAG" --notes "$NOTES" --latest
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --latest
           else
             gh release create "$TAG" "$DMG" \
               --title "SimpleShot ${VERSION}" \
-              --notes "$NOTES" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
               --target "$GITHUB_SHA" \
               --latest
           fi

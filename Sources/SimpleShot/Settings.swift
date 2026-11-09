@@ -9,6 +9,24 @@ final class Settings {
     private enum Key {
         static let shortcut = "shortcut"
         static let saveDirectory = "saveDirectory"
+        static let autoCheckUpdates = "autoCheckUpdates"
+        static let skippedVersion = "skippedVersion"
+        static let lastUpdateCheck = "lastUpdateCheck"
+    }
+
+    var autoCheckUpdates: Bool {
+        get { defaults.object(forKey: Key.autoCheckUpdates) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.autoCheckUpdates) }
+    }
+
+    var skippedVersion: String? {
+        get { defaults.string(forKey: Key.skippedVersion) }
+        set { defaults.set(newValue, forKey: Key.skippedVersion) }
+    }
+
+    var lastUpdateCheck: Date {
+        get { defaults.object(forKey: Key.lastUpdateCheck) as? Date ?? .distantPast }
+        set { defaults.set(newValue, forKey: Key.lastUpdateCheck) }
     }
 
     var shortcut: Shortcut {
