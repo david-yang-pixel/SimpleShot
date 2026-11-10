@@ -5,6 +5,7 @@ import Carbon.HIToolbox
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var captureItem: NSMenuItem!
+    private var inputTranslateItem: NSMenuItem!
     private var secureInputItem: NSMenuItem!
     private var secureInputSeparator: NSMenuItem!
     private let capture = CaptureController()
@@ -14,15 +15,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
         setupStatusItem()
 
-        HotKeyManager.shared.onTrigger = { [weak self] in
+        HotKeyManager.shared.handlers[.capture] = { [weak self] in
             self?.capture.startCapture()
+        }
+        HotKeyManager.shared.handlers[.inputTranslate] = {
+            InputTranslateController.shared.toggle()
         }
         NotificationCenter.default.addObserver(self, selector: #selector(shortcutDidChange),
                                                name: .shortcutDidChange, object: nil)
 
         let shortcut = Settings.shared.shortcut
         let status = HotKeyManager.shared.register(shortcut)
+        let inputShortcut = Settings.shared.inputTranslateShortcut
+        let inputStatus = HotKeyManager.shared.register(inputShortcut, for: .inputTranslate)
         updateMenuShortcut()
+        if status == noErr && inputStatus != noErr {
+            settingsController.show(message: "输入翻译快捷键 \(inputShortcut.displayString) 已被占用或注册失败，请设置一个新的快捷键。",
+                                    isError: true)
+        }
         if status != noErr {
             let message = status == OSStatus(eventHotKeyExistsErr)
                 ? "快捷键 \(shortcut.displayString) 已被其他应用占用，请设置一个新的快捷键。"
@@ -62,6 +72,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         captureItem = NSMenuItem(title: "截图", action: #selector(captureFromMenu), keyEquivalent: "")
         captureItem.target = self
         menu.addItem(captureItem)
+        inputTranslateItem = NSMenuItem(title: "输入翻译", action: #selector(openInputTranslate), keyEquivalent: "")
+        inputTranslateItem.target = self
+        menu.addItem(inputTranslateItem)
         menu.addItem(.separator())
         let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
@@ -106,15 +119,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateMenuShortcut() {
-        let s = Settings.shared.shortcut
-        captureItem.title = "截图"
-        if let key = s.menuKeyEquivalent {
-            captureItem.keyEquivalent = key
-            captureItem.keyEquivalentModifierMask = s.cocoaModifiers
-        } else {
-            captureItem.keyEquivalent = ""
-            captureItem.title = "截图    \(s.displayString)"
+        func apply(_ item: NSMenuItem, _ title: String, _ s: Shortcut) {
+            item.title = title
+            if let key = s.menuKeyEquivalent {
+                item.keyEquivalent = key
+                item.keyEquivalentModifierMask = s.cocoaModifiers
+            } else {
+                item.keyEquivalent = ""
+                item.title = "\(title)    \(s.displayString)"
+            }
         }
+        apply(captureItem, "截图", Settings.shared.shortcut)
+        apply(inputTranslateItem, "输入翻译", Settings.shared.inputTranslateShortcut)
+    }
+
+    @objc private func openInputTranslate() {
+        InputTranslateController.shared.show()
     }
 
     // MARK: - Actions

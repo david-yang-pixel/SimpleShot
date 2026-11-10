@@ -10,6 +10,7 @@ enum ShortcutError: Error {
     case commonAppShortcut(String)
     case systemShortcut(String)
     case occupied(String)
+    case ownShortcut(String, String)
     case failed(OSStatus)
 
     var message: String {
@@ -22,8 +23,23 @@ enum ShortcutError: Error {
             return "\(s) 已被系统快捷键占用（系统设置 › 键盘 › 键盘快捷键），请换一个组合"
         case .occupied(let s):
             return "\(s) 已被其他应用占用，请换一个组合"
+        case .ownShortcut(let s, let other):
+            return "\(s) 已用作 SimpleShot 的「\(other)」快捷键，请换一个组合"
         case .failed(let code):
             return "注册快捷键失败（错误码 \(code)）"
+        }
+    }
+}
+
+/// 全局快捷键对应的功能
+enum HotKeyAction: UInt32, CaseIterable {
+    case capture = 1
+    case inputTranslate = 2
+
+    var title: String {
+        switch self {
+        case .capture: return "截图"
+        case .inputTranslate: return "输入翻译"
         }
     }
 }
@@ -32,14 +48,19 @@ enum ShortcutError: Error {
 @MainActor
 final class HotKeyManager {
     static let shared = HotKeyManager()
+    private static let signature = OSType(0x5353_6874) // 'SSht'
 
-    /// 快捷键被按下
-    var onTrigger: (() -> Void)?
+    /// 各快捷键被按下时的处理
+    var handlers: [HotKeyAction: () -> Void] = [:]
 
-    private(set) var current: Shortcut?
-    private var hotKeyRef: EventHotKeyRef?
+    /// 兼容旧接口：截图快捷键
+    var onTrigger: (() -> Void)? {
+        get { handlers[.capture] }
+        set { handlers[.capture] = newValue }
+    }
+
+    private var refs: [HotKeyAction: EventHotKeyRef] = [:]
     private var handlerRef: EventHandlerRef?
-    private let hotKeyID = EventHotKeyID(signature: OSType(0x5353_6874) /* 'SSht' */, id: 1)
 
     private init() {
         installHandler()
@@ -57,66 +78,72 @@ final class HotKeyManager {
                                            MemoryLayout<EventHotKeyID>.size,
                                            nil,
                                            &id)
-            guard status == noErr, id.signature == OSType(0x5353_6874) else {
+            guard status == noErr, id.signature == OSType(0x5353_6874),
+                  let action = HotKeyAction(rawValue: id.id) else {
                 return OSStatus(eventNotHandledErr)
             }
-            Task { @MainActor in HotKeyManager.shared.onTrigger?() }
+            Task { @MainActor in HotKeyManager.shared.handlers[action]?() }
             return noErr
         }, 1, &spec, nil, &handlerRef)
     }
 
-    /// 注册（替换当前的）快捷键。
+    /// 注册（替换）某个功能的快捷键
     @discardableResult
-    func register(_ shortcut: Shortcut) -> OSStatus {
-        unregisterRef()
+    func register(_ shortcut: Shortcut, for action: HotKeyAction = .capture) -> OSStatus {
+        unregister(action)
         var ref: EventHotKeyRef?
-        let status = RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, hotKeyID,
-                                         GetApplicationEventTarget(), OptionBits(0), &ref)
+        let id = EventHotKeyID(signature: HotKeyManager.signature, id: action.rawValue)
         // 若该组合已被其他应用注册，系统返回 eventHotKeyExistsErr
-        if status == noErr {
-            hotKeyRef = ref
-            current = shortcut
-        } else {
-            current = nil
-        }
+        let status = RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, id,
+                                         GetApplicationEventTarget(), OptionBits(0), &ref)
+        if status == noErr, let ref { refs[action] = ref }
         return status
     }
 
-    /// 录制新快捷键时临时停用，避免触发截图。
+    func isRegistered(_ action: HotKeyAction) -> Bool {
+        refs[action] != nil
+    }
+
+    /// 录制新快捷键时临时停用全部快捷键，避免误触发
     func suspend() {
-        unregisterRef()
+        for action in HotKeyAction.allCases { unregister(action) }
     }
 
     func resume() {
-        if hotKeyRef == nil {
-            register(Settings.shared.shortcut)
+        for action in HotKeyAction.allCases where refs[action] == nil {
+            register(Settings.shared.shortcut(for: action), for: action)
         }
     }
 
-    private func unregisterRef() {
-        if let ref = hotKeyRef {
+    private func unregister(_ action: HotKeyAction) {
+        if let ref = refs[action] {
             UnregisterEventHotKey(ref)
-            hotKeyRef = nil
+            refs[action] = nil
         }
     }
 
     /// 校验并切换到新的快捷键；成功后写入设置。失败时恢复旧快捷键。
-    func change(to new: Shortcut) -> Result<Void, ShortcutError> {
+    func change(to new: Shortcut, for action: HotKeyAction = .capture) -> Result<Void, ShortcutError> {
         let name = new.displayString
         guard new.hasPrimaryModifier else { return .failure(.needsModifier) }
         if ShortcutConflicts.isCommonAppShortcut(new) { return .failure(.commonAppShortcut(name)) }
         if ShortcutConflicts.isSystemShortcut(new) { return .failure(.systemShortcut(name)) }
+        for other in HotKeyAction.allCases where other != action {
+            if Settings.shared.shortcut(for: other) == new {
+                return .failure(.ownShortcut(name, other.title))
+            }
+        }
 
-        let old = Settings.shared.shortcut
-        if new == old && hotKeyRef != nil { return .success(()) }
+        let old = Settings.shared.shortcut(for: action)
+        if new == old && refs[action] != nil { return .success(()) }
 
-        let status = register(new)
+        let status = register(new, for: action)
         if status == noErr {
-            Settings.shared.shortcut = new
+            Settings.shared.setShortcut(new, for: action)
             NotificationCenter.default.post(name: .shortcutDidChange, object: nil)
             return .success(())
         }
-        register(old)
+        register(old, for: action)
         if status == OSStatus(eventHotKeyExistsErr) {
             return .failure(.occupied(name))
         }

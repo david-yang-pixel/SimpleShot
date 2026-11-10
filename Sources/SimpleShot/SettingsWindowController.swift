@@ -4,6 +4,7 @@ import Carbon.HIToolbox
 @MainActor
 final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate {
     private let recorder = ShortcutRecorder()
+    private let inputRecorder = ShortcutRecorder()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private let loginCheckbox = NSButton(checkboxWithTitle: "开机时自动启动", target: nil, action: nil)
     private let updateCheckbox = NSButton(checkboxWithTitle: "自动检查更新", target: nil, action: nil)
@@ -20,7 +21,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let selectionCheckbox = NSButton(checkboxWithTitle: "选中外文后显示翻译图标", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "授予辅助功能权限", target: nil, action: nil)
     private var grid: NSGridView!
-    private let aiRows = 5...10
+    private let aiRows = 6...11
 
     private static let hint = "点击按钮后按下新的组合键；按 Esc 取消录制。"
 
@@ -47,6 +48,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     private func refresh() {
         recorder.shortcut = Settings.shared.shortcut
+        inputRecorder.shortcut = Settings.shared.inputTranslateShortcut
         loginCheckbox.state = Settings.shared.launchAtLogin ? .on : .off
         updateCheckbox.state = Settings.shared.autoCheckUpdates ? .on : .off
 
@@ -71,6 +73,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             if recording { HotKeyManager.shared.suspend() } else { HotKeyManager.shared.resume() }
         }
         recorder.onCapture = { [weak self] shortcut in self?.apply(shortcut) }
+        inputRecorder.onRecordingChanged = recorder.onRecordingChanged
+        inputRecorder.onCapture = { [weak self] shortcut in self?.apply(shortcut, for: .inputTranslate) }
+        let inputResetButton = NSButton(title: "恢复默认", target: self, action: #selector(resetInputShortcut))
+        inputResetButton.bezelStyle = .rounded
 
         let resetButton = NSButton(title: "恢复默认", target: self, action: #selector(resetShortcut))
         resetButton.bezelStyle = .rounded
@@ -140,6 +146,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
 
         grid = NSGridView(views: [
             [label("截图快捷键："), row([recorder, resetButton])],
+            [label("输入翻译："), row([inputRecorder, inputResetButton])],
             [NSGridCell.emptyContentView, statusLabel],
             [NSGridCell.emptyContentView, loginCheckbox],
             [NSGridCell.emptyContentView, row([updateCheckbox, checkNowButton])],
@@ -158,10 +165,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         grid.columnSpacing = 8
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
-        grid.row(at: 1).topPadding = -4
-        grid.row(at: 4).topPadding = 10
-        grid.row(at: 11).topPadding = 6
-        grid.row(at: 12).topPadding = 8
+        grid.row(at: 2).topPadding = -4
+        grid.row(at: 5).topPadding = 10
+        grid.row(at: 12).topPadding = 6
+        grid.row(at: 13).topPadding = 8
         grid.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(grid)
         NSLayoutConstraint.activate([
@@ -288,15 +295,21 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     // MARK: - Actions
 
-    private func apply(_ shortcut: Shortcut) {
-        switch HotKeyManager.shared.change(to: shortcut) {
+    private func apply(_ shortcut: Shortcut, for action: HotKeyAction = .capture) {
+        let target = action == .capture ? recorder : inputRecorder
+        switch HotKeyManager.shared.change(to: shortcut, for: action) {
         case .success:
-            recorder.shortcut = shortcut
-            setStatus("✓ 已设置为 \(shortcut.displayString)", isError: false)
+            target.shortcut = shortcut
+            setStatus("✓ \(action.title)快捷键已设置为 \(shortcut.displayString)", isError: false)
         case .failure(let error):
-            recorder.shortcut = Settings.shared.shortcut
+            target.shortcut = Settings.shared.shortcut(for: action)
             setStatus(error.message, isError: true)
         }
+    }
+
+    @objc private func resetInputShortcut() {
+        inputRecorder.stopRecording()
+        apply(.defaultInputTranslate, for: .inputTranslate)
     }
 
     @objc private func resetShortcut() {
@@ -325,10 +338,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     func windowDidResignKey(_ notification: Notification) {
         recorder.stopRecording()
+        inputRecorder.stopRecording()
     }
 
     func windowWillClose(_ notification: Notification) {
         recorder.stopRecording()
+        inputRecorder.stopRecording()
     }
 }
 

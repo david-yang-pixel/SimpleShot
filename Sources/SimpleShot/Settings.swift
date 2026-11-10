@@ -8,6 +8,7 @@ final class Settings {
     private let defaults = UserDefaults.standard
     private enum Key {
         static let shortcut = "shortcut"
+        static let inputTranslateShortcut = "inputTranslateShortcut"
         static let autoCheckUpdates = "autoCheckUpdates"
         static let skippedVersion = "skippedVersion"
         static let lastUpdateCheck = "lastUpdateCheck"
@@ -85,6 +86,34 @@ final class Settings {
         }
         set {
             defaults.set(try? JSONEncoder().encode(newValue), forKey: Key.shortcut)
+        }
+    }
+
+    /// 输入翻译快捷键，默认 ⌥Z
+    var inputTranslateShortcut: Shortcut {
+        get {
+            if let data = defaults.data(forKey: Key.inputTranslateShortcut),
+               let s = try? JSONDecoder().decode(Shortcut.self, from: data) {
+                return s
+            }
+            return .defaultInputTranslate
+        }
+        set {
+            defaults.set(try? JSONEncoder().encode(newValue), forKey: Key.inputTranslateShortcut)
+        }
+    }
+
+    func shortcut(for action: HotKeyAction) -> Shortcut {
+        switch action {
+        case .capture: return shortcut
+        case .inputTranslate: return inputTranslateShortcut
+        }
+    }
+
+    func setShortcut(_ value: Shortcut, for action: HotKeyAction) {
+        switch action {
+        case .capture: shortcut = value
+        case .inputTranslate: inputTranslateShortcut = value
         }
     }
 

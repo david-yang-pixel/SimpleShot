@@ -9,6 +9,9 @@ struct Shortcut: Codable, Equatable {
     /// 默认 ⌥A
     static let defaultShortcut = Shortcut(keyCode: UInt32(kVK_ANSI_A), modifiers: UInt32(optionKey))
 
+    /// 输入翻译默认 ⌥Z
+    static let defaultInputTranslate = Shortcut(keyCode: UInt32(kVK_ANSI_Z), modifiers: UInt32(optionKey))
+
     static let modifierMask = UInt32(cmdKey | optionKey | controlKey | shiftKey)
 
     init(keyCode: UInt32, modifiers: UInt32) {
