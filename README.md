@@ -75,7 +75,7 @@ OpenAI、Ollama（本机）或 Claude，再填入 API Key，点「测试」确�
 
 **录屏**（需要 macOS 15+）：按 `⌥A` 选好区域或窗口后，点工具条上的「录屏」，选择是否录「系统声音」「麦克风」，
 点「开始录制」（或回车）。录制区域外有红色虚线框，选区右下角有悬浮控制条显示计时；点控制条上的「结束录制」、菜单栏的停止按钮，或再按 `⌥A` 结束。
-录好的 MP4 **只放在剪贴板**，可直接粘贴到微信等应用发送；右下角预览窗可「转 GIF」或「丢弃」。
+录好的 MP4 **直接放进剪贴板**（不弹任何提示），可直接粘贴到微信等应用发送。
 录屏文件只写在系统临时目录，剪贴板内容被替换后自动删除，不会保存到你的文件夹。
 录制前可选择录制对象：
 - **固定区域**：录屏幕上这块区域，切换到其他窗口也会继续录，区域里显示什么就录什么；
@@ -126,7 +126,7 @@ Sources/SimpleShot/
   AITranslator.swift           AI 大模型翻译（OpenAI 兼容 / Claude）+ 钥匙串存储
   SelectionTranslator.swift    划词翻译：读取选中文字、翻译图标与浮窗
   InputTranslator.swift        输入翻译窗口（快捷键呼出）
-  ScreenRecorder.swift         录屏（ScreenCaptureKit）、预览窗、转 GIF、临时文件清理
+  ScreenRecorder.swift         录屏（ScreenCaptureKit）、悬浮控制条、临时文件清理
   Helpers.swift                权限提示、Toast
 ```
 

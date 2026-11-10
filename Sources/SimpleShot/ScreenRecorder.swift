@@ -1,8 +1,6 @@
 import AppKit
 import AVFoundation
-import ImageIO
 import ScreenCaptureKit
-import UniformTypeIdentifiers
 
 // MARK: - 录屏控制（开始 / 停止 / 状态）
 
@@ -52,6 +50,7 @@ final class RecordingController {
                 // 录窗口时窗口可能被移动，不画固定的虚线框
                 if !recordsWindow { self.showBorder(screen: screen, rect: rect) }
                 self.showHUD(screen: screen, rect: rect)
+                AppLog.capture.info("recording started (window mode: \(recordsWindow, privacy: .public))")
                 self.startTimer()
             } catch {
                 self.showAlert("无法开始录屏", error.localizedDescription)
@@ -69,6 +68,7 @@ final class RecordingController {
         hud?.orderOut(nil)
         hud = nil
         onStateChange?(false, 0)
+        AppLog.capture.info("recording stop requested")
         if #available(macOS 15.0, *), let session = session as? RecordingSession {
             Task { await session.stop() }
         }
@@ -76,10 +76,15 @@ final class RecordingController {
 
     private func didFinish(_ result: Result<URL, Error>) {
         if isRecording { stop() } // 录制意外中断（例如权限被撤销）
+        if case .failure(let error) = result {
+            AppLog.capture.error("recording failed: \(error.localizedDescription, privacy: .public)")
+        }
         session = nil
         switch result {
         case .success(let url):
-            RecordingPreviewController.shared.show(url: url)
+            // 不弹任何提示，直接放进剪贴板
+            TempRecordingStore.shared.copyToClipboard(url)
+            AppLog.capture.info("recording copied to clipboard")
         case .failure(let error):
             showAlert("录屏失败", error.localizedDescription)
         }
@@ -231,18 +236,30 @@ final class RecordingSession: NSObject, SCStreamDelegate, SCRecordingOutputDeleg
         return recordsWindow
     }
 
+    /// 先移除录制输出（写完文件），再停止录制流，最后释放，确保系统的“录屏中”指示器消失
     func stop() async {
-        do {
-            try await stream?.stopCapture()
-        } catch {
-            deliver(.failure(error))
+        guard let stream else { return }
+        if let recordingOutput {
+            do {
+                try stream.removeRecordingOutput(recordingOutput)
+            } catch {
+                AppLog.capture.error("removeRecordingOutput failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
-        stream = nil
+        do {
+            try await stream.stopCapture()
+            AppLog.capture.info("stream stopped")
+        } catch {
+            AppLog.capture.error("stopCapture failed: \(error.localizedDescription, privacy: .public)")
+        }
+        self.stream = nil
+        self.recordingOutput = nil
     }
 
     // MARK: 回调
 
     func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
+        AppLog.capture.info("recording file finished")
         deliver(.success(url))
     }
 
@@ -263,218 +280,9 @@ final class RecordingSession: NSObject, SCStreamDelegate, SCRecordingOutputDeleg
     }
 }
 
-// MARK: - 录完后的预览小窗（右下角）
-
-@MainActor
-final class RecordingPreviewController {
-    static let shared = RecordingPreviewController()
-
-    private var panel: NSPanel?
-    private var url: URL?
-    private let statusLabel = NSTextField(labelWithString: "")
-    private var autoCloseTask: Task<Void, Never>?
-    private var gifButton: NSButton?
-
-    func show(url: URL) {
-        closePanel() // 只关掉旧预览，不触发清理（否则会把刚录好的文件删掉）
-        self.url = url
-        copyFile(url)
-
-        let width: CGFloat = 300
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: 240),
-                            styleMask: [.titled, .closable, .fullSizeContentView, .nonactivatingPanel],
-                            backing: .buffered, defer: false)
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        panel.isMovableByWindowBackground = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-
-        let background = NSVisualEffectView()
-        background.material = .popover
-        background.state = .active
-        background.blendingMode = .behindWindow
-        panel.contentView = background
-
-        let thumbnail = NSImageView()
-        thumbnail.imageScaling = .scaleProportionallyUpOrDown
-        thumbnail.wantsLayer = true
-        thumbnail.layer?.cornerRadius = 6
-        thumbnail.layer?.masksToBounds = true
-        thumbnail.translatesAutoresizingMaskIntoConstraints = false
-
-        statusLabel.font = .systemFont(ofSize: 12)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.stringValue = "✓ 已复制到剪贴板（不保存到本地），可直接粘贴发送"
-        statusLabel.lineBreakMode = .byTruncatingTail
-
-        func button(_ title: String, _ symbol: String, _ action: Selector) -> NSButton {
-            let b = NSButton(title: title, target: self, action: action)
-            b.bezelStyle = .rounded
-            b.controlSize = .small
-            b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
-            b.imagePosition = .imageLeading
-            return b
-        }
-        let copy = button("复制", "doc.on.doc", #selector(copyVideo))
-        let gif = button("转 GIF", "photo.stack", #selector(makeGIF))
-        gifButton = gif
-        let discard = button("丢弃", "trash", #selector(discard))
-        let buttons = NSStackView(views: [copy, gif, discard])
-        buttons.orientation = .horizontal
-        buttons.spacing = 6
-
-        let column = NSStackView(views: [thumbnail, statusLabel, buttons])
-        column.orientation = .vertical
-        column.alignment = .leading
-        column.spacing = 8
-        column.translatesAutoresizingMaskIntoConstraints = false
-        background.addSubview(column)
-        NSLayoutConstraint.activate([
-            column.topAnchor.constraint(equalTo: background.topAnchor, constant: 30),
-            column.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 12),
-            column.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -12),
-            column.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -12),
-            thumbnail.widthAnchor.constraint(equalTo: column.widthAnchor),
-            thumbnail.heightAnchor.constraint(equalToConstant: 150),
-            statusLabel.widthAnchor.constraint(equalTo: column.widthAnchor),
-        ])
-
-        if let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
-            panel.setFrameOrigin(CGPoint(x: visible.maxX - width - 16, y: visible.minY + 16))
-        }
-        panel.orderFrontRegardless()
-        self.panel = panel
-        scheduleAutoClose()
-
-        // 缩略图和时长
-        Task { @MainActor in
-            let asset = AVURLAsset(url: url)
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 600, height: 600)
-            if let (image, _) = try? await generator.image(at: .zero) {
-                thumbnail.image = NSImage(cgImage: image, size: .zero)
-            }
-            if let duration = try? await asset.load(.duration), duration.seconds.isFinite {
-                let s = Int(duration.seconds.rounded())
-                panel.title = String(format: "录屏 %02d:%02d", s / 60, s % 60)
-                panel.titleVisibility = .visible
-            }
-        }
-    }
-
-    private func scheduleAutoClose() {
-        autoCloseTask?.cancel()
-        autoCloseTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 15_000_000_000)
-            guard !Task.isCancelled, let self, let panel = self.panel else { return }
-            if panel.frame.contains(NSEvent.mouseLocation) { self.scheduleAutoClose() } else { self.close() }
-        }
-    }
-
-    var isShowing: Bool { panel != nil }
-
-    private func closePanel() {
-        autoCloseTask?.cancel()
-        panel?.orderOut(nil)
-        panel = nil
-    }
-
-    private func close() {
-        closePanel()
-        TempRecordingStore.shared.cleanUpIfClipboardChanged()
-    }
-
-    private func copyFile(_ url: URL) {
-        TempRecordingStore.shared.copyToClipboard(url)
-    }
-
-    @objc private func copyVideo() {
-        guard let url else { return }
-        copyFile(url)
-        statusLabel.stringValue = "✓ 视频已复制到剪贴板"
-        scheduleAutoClose()
-    }
-
-    @objc private func makeGIF() {
-        guard let url else { return }
-        gifButton?.isEnabled = false
-        statusLabel.stringValue = "正在转换 GIF…"
-        autoCloseTask?.cancel()
-        Task { @MainActor in
-            do {
-                let gif = try await GIFMaker.make(from: url)
-                self.copyFile(gif)
-                self.url = gif
-                self.statusLabel.stringValue = "✓ GIF 已生成并复制到剪贴板"
-            } catch {
-                self.statusLabel.stringValue = "GIF 转换失败：\(error.localizedDescription)"
-            }
-            self.gifButton?.isEnabled = true
-            self.scheduleAutoClose()
-        }
-    }
-
-    /// 丢弃：立即删除临时文件并清空剪贴板中的这段录屏
-    @objc private func discard() {
-        TempRecordingStore.shared.discardAll()
-        url = nil
-        close()
-    }
-}
-
-// MARK: - MP4 转 GIF
-
-enum GIFMaker {
-    static func make(from url: URL) async throws -> URL {
-        try await Task.detached(priority: .userInitiated) {
-            let asset = AVURLAsset(url: url)
-            let duration = try await asset.load(.duration).seconds
-            guard duration.isFinite, duration > 0 else {
-                throw NSError(domain: "SimpleShot", code: 2, userInfo: [NSLocalizedDescriptionKey: "视频时长无效"])
-            }
-            // 每秒 12 帧；很长的视频降低帧率，最多约 600 帧
-            let fps = min(12.0, 600.0 / duration)
-            let count = max(1, Int(duration * fps))
-
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 800, height: 800)
-            let tolerance = CMTime(seconds: 0.5 / fps, preferredTimescale: 600)
-            generator.requestedTimeToleranceBefore = tolerance
-            generator.requestedTimeToleranceAfter = tolerance
-
-            let output = url.deletingPathExtension().appendingPathExtension("gif")
-            try? FileManager.default.removeItem(at: output)
-            guard let destination = CGImageDestinationCreateWithURL(output as CFURL, UTType.gif.identifier as CFString,
-                                                                    count, nil) else {
-                throw NSError(domain: "SimpleShot", code: 3, userInfo: [NSLocalizedDescriptionKey: "无法创建 GIF 文件"])
-            }
-            let fileProperties = [kCGImagePropertyGIFDictionary as String:
-                                    [kCGImagePropertyGIFLoopCount as String: 0]] as CFDictionary
-            CGImageDestinationSetProperties(destination, fileProperties)
-            let frameProperties = [kCGImagePropertyGIFDictionary as String:
-                                     [kCGImagePropertyGIFDelayTime as String: 1.0 / fps]] as CFDictionary
-            for i in 0..<count {
-                let time = CMTime(seconds: Double(i) / fps, preferredTimescale: 600)
-                let (image, _) = try await generator.image(at: time)
-                CGImageDestinationAddImage(destination, image, frameProperties)
-            }
-            guard CGImageDestinationFinalize(destination) else {
-                throw NSError(domain: "SimpleShot", code: 4, userInfo: [NSLocalizedDescriptionKey: "GIF 写入失败"])
-            }
-            return output
-        }.value
-    }
-}
-
 // MARK: - 临时录屏文件：只为剪贴板存在
 
-/// 录屏文件只放在系统临时目录。剪贴板内容被替换（且预览窗已关闭）后自动删除，
+/// 录屏文件只放在系统临时目录。剪贴板内容被替换后自动删除，
 /// 启动时也会清掉上次残留的文件，不会在用户的文件夹里留下任何录屏。
 @MainActor
 final class TempRecordingStore {
@@ -512,12 +320,11 @@ final class TempRecordingStore {
         }
     }
 
-    /// 剪贴板已不是我们的录屏、且没在录制和预览时，删除所有临时录屏
+    /// 剪贴板已不是我们的录屏、且没在录制时，删除所有临时录屏
     @discardableResult
     func cleanUpIfClipboardChanged() -> Bool {
         guard NSPasteboard.general.changeCount != ownedChangeCount,
-              !RecordingController.shared.isRecording,
-              !RecordingPreviewController.shared.isShowing else { return false }
+              !RecordingController.shared.isRecording else { return false }
         deleteFiles()
         return true
     }
