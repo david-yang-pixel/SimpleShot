@@ -316,6 +316,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
     private func resetToChoosing(at p: CGPoint) {
         discardTextField()
         selectedWindowID = nil
+        lastRecordTarget = nil
         phase = .choosing
         dragMode = .none
         annotations.removeAll()
@@ -517,9 +518,24 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
         layoutToolbar()
     }
 
+    /// 可单独录制的窗口：单击选中的窗口；否则取选区中心下最上层的窗口（桌面则没有）
+    private var recordableWindowID: CGWindowID? {
+        if let selectedWindowID { return selectedWindowID }
+        let center = CGPoint(x: selection.midX, y: selection.midY)
+        guard let index = shot.windowRects.firstIndex(where: { $0.contains(center) }) else { return nil }
+        return shot.windowIDs[index]
+    }
+
+    /// 上次给工具条设置的录制对象状态；只在变化时更新，避免覆盖用户手动的选择
+    private var lastRecordTarget: (CGWindowID?, Bool)?
+
     private func layoutToolbar() {
         guard let tb = toolbar else { return }
-        tb.setRecordTarget(isWindow: selectedWindowID != nil)
+        let target = (recordableWindowID, selectedWindowID != nil)
+        if lastRecordTarget == nil || lastRecordTarget! != target {
+            lastRecordTarget = target
+            tb.setRecordTarget(windowAvailable: target.0 != nil, preferWindow: target.1)
+        }
         tb.layoutSubtreeIfNeeded()
         let size = tb.fittingSize
         var x = selection.maxX - size.width
@@ -550,10 +566,11 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
     func toolbarExtractText(_ toolbar: ToolbarView) { finish(.extractText) }
     func toolbarTranslate(_ toolbar: ToolbarView) { finish(.translate) }
 
-    func toolbarStartRecording(_ toolbar: ToolbarView, systemAudio: Bool, microphone: Bool) {
+    func toolbarStartRecording(_ toolbar: ToolbarView, recordWindow: Bool, systemAudio: Bool, microphone: Bool) {
         commitTextField()
         guard phase == .selected else { return }
-        delegate?.selectionView(self, startRecordingIn: selection, windowID: selectedWindowID,
+        delegate?.selectionView(self, startRecordingIn: selection,
+                                windowID: recordWindow ? recordableWindowID : nil,
                                 systemAudio: systemAudio, microphone: microphone)
     }
     func toolbarCancel(_ toolbar: ToolbarView) { finish(.cancel) }

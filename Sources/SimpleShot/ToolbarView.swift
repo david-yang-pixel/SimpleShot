@@ -8,7 +8,7 @@ protocol ToolbarViewDelegate: AnyObject {
     func toolbarUndo(_ toolbar: ToolbarView)
     func toolbarExtractText(_ toolbar: ToolbarView)
     func toolbarTranslate(_ toolbar: ToolbarView)
-    func toolbarStartRecording(_ toolbar: ToolbarView, systemAudio: Bool, microphone: Bool)
+    func toolbarStartRecording(_ toolbar: ToolbarView, recordWindow: Bool, systemAudio: Bool, microphone: Bool)
     func toolbarCancel(_ toolbar: ToolbarView)
     func toolbarConfirm(_ toolbar: ToolbarView)
 }
@@ -25,7 +25,9 @@ final class ToolbarView: NSVisualEffectView {
     private let systemAudioCheckbox = NSButton(checkboxWithTitle: "系统声音", target: nil, action: nil)
     private let microphoneCheckbox = NSButton(checkboxWithTitle: "麦克风", target: nil, action: nil)
     private var recordButton: NSButton?
-    private let recordTargetLabel = NSTextField(labelWithString: "")
+    /// 录制对象：0 = 固定区域，1 = 该窗口
+    private let recordTargetControl = NSSegmentedControl(labels: ["固定区域", "该窗口"], trackingMode: .selectOne,
+                                                         target: nil, action: nil)
     private var sizeDots: [DotView] = []
     private var colorDots: [DotView] = []
 
@@ -117,9 +119,11 @@ final class ToolbarView: NSVisualEffectView {
         start.bezelColor = .systemRed
         start.image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: nil)
         start.imagePosition = .imageLeading
-        recordTargetLabel.font = .systemFont(ofSize: 11)
-        recordTargetLabel.textColor = .secondaryLabelColor
-        recordRow.addArrangedSubview(recordTargetLabel)
+        recordTargetControl.controlSize = .small
+        recordTargetControl.selectedSegment = 0
+        recordTargetControl.setToolTip("录屏幕上这块固定区域：切换到其他窗口也会继续录，区域里显示什么就录什么", forSegment: 0)
+        recordTargetControl.setToolTip("只录这个窗口：切换到其他窗口、窗口被遮挡或移动都能录到它", forSegment: 1)
+        recordRow.addArrangedSubview(recordTargetControl)
         recordRow.addArrangedSubview(systemAudioCheckbox)
         recordRow.addArrangedSubview(microphoneCheckbox)
         recordRow.addArrangedSubview(start)
@@ -190,16 +194,16 @@ final class ToolbarView: NSVisualEffectView {
         let microphone = microphoneCheckbox.state == .on
         Settings.shared.recordSystemAudio = systemAudio
         Settings.shared.recordMicrophone = microphone
-        delegate?.toolbarStartRecording(self, systemAudio: systemAudio, microphone: microphone)
+        delegate?.toolbarStartRecording(self, recordWindow: recordTargetControl.selectedSegment == 1,
+                                        systemAudio: systemAudio, microphone: microphone)
     }
 
     var isRecordOptionsVisible: Bool { !recordRow.isHidden }
 
-    func setRecordTarget(isWindow: Bool) {
-        recordTargetLabel.stringValue = isWindow ? "将录制：该窗口" : "将录制：该区域"
-        recordTargetLabel.toolTip = isWindow
-            ? "只录这个窗口，切换到其他窗口、窗口被遮挡或移动都能录到"
-            : "录屏幕上这块固定区域，区域里显示什么就录什么"
+    /// windowAvailable：选区下有可录的窗口；preferWindow：默认选“该窗口”（单击选中窗口时）
+    func setRecordTarget(windowAvailable: Bool, preferWindow: Bool) {
+        recordTargetControl.setEnabled(windowAvailable, forSegment: 1)
+        recordTargetControl.selectedSegment = (windowAvailable && preferWindow) ? 1 : 0
     }
 
     /// 录屏选项展开时按回车 = 开始录制
