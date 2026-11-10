@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 enum CaptureAction {
-    case copy, extractText, cancel
+    case copy, extractText, translate, cancel
 }
 
 @MainActor
@@ -525,6 +525,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
 
     func toolbarUndo(_ toolbar: ToolbarView) { undo() }
     func toolbarExtractText(_ toolbar: ToolbarView) { finish(.extractText) }
+    func toolbarTranslate(_ toolbar: ToolbarView) { finish(.translate) }
     func toolbarCancel(_ toolbar: ToolbarView) { finish(.cancel) }
     func toolbarConfirm(_ toolbar: ToolbarView) { finish(.copy) }
 
@@ -537,7 +538,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
             return
         }
         // 提取文字时用原始截图，避免标注干扰识别
-        let image = renderOutput(includeAnnotations: action != .extractText)
+        let image = renderOutput(includeAnnotations: action == .copy)
         delegate?.selectionView(self, finishWith: image == nil ? .cancel : action,
                                 image: image, pointSize: selection.size)
     }

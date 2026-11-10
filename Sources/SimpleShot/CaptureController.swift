@@ -131,11 +131,13 @@ final class CaptureController: SelectionViewDelegate {
     }
 
     func selectionView(_ view: SelectionView, finishWith action: CaptureAction, image: CGImage?, pointSize: CGSize) {
-        close(restoreFocus: action != .extractText)
+        close(restoreFocus: action == .copy || action == .cancel)
         guard let image else { return }
         switch action {
         case .copy:
             ImageExporter.copyToPasteboard(image, pointSize: pointSize)
+        case .translate:
+            TranslateWindowController.show(recognizing: image)
         case .extractText:
             TextResultWindowController.show(recognizing: image)
         case .cancel:
