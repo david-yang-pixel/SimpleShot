@@ -16,6 +16,7 @@ final class RecordingController {
 
     private var session: AnyObject? // macOS 15+ 时为 RecordingSession
     private var borderWindow: NSWindow?
+    private var hud: RecordingHUD?
     private var startDate = Date()
     private var timerTask: Task<Void, Never>?
     private var isStarting = false
@@ -50,6 +51,7 @@ final class RecordingController {
                 self.startDate = Date()
                 // 录窗口时窗口可能被移动，不画固定的虚线框
                 if !recordsWindow { self.showBorder(screen: screen, rect: rect) }
+                self.showHUD(screen: screen, rect: recordsWindow ? nil : rect)
                 self.startTimer()
             } catch {
                 self.showAlert("无法开始录屏", error.localizedDescription)
@@ -64,6 +66,8 @@ final class RecordingController {
         timerTask = nil
         borderWindow?.orderOut(nil)
         borderWindow = nil
+        hud?.orderOut(nil)
+        hud = nil
         onStateChange?(false, 0)
         if #available(macOS 15.0, *), let session = session as? RecordingSession {
             Task { await session.stop() }
@@ -87,9 +91,35 @@ final class RecordingController {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard let self, self.isRecording else { return }
-                self.onStateChange?(true, Date().timeIntervalSince(self.startDate))
+                let elapsed = Date().timeIntervalSince(self.startDate)
+                self.hud?.update(elapsed: elapsed)
+                self.onStateChange?(true, elapsed)
             }
         }
+    }
+
+    /// 悬浮控制条：放在录制区域外面（下方，放不下就上方）；录窗口时放屏幕顶部中间
+    private func showHUD(screen: NSScreen, rect: CGRect?) {
+        let panel = RecordingHUD.make { [weak self] in self?.stop() }
+        let size = panel.frame.size
+        let visible = screen.visibleFrame
+        var origin = CGPoint(x: visible.midX - size.width / 2, y: visible.maxY - size.height - 12)
+        if let rect {
+            let global = rect.offsetBy(dx: screen.frame.minX, dy: screen.frame.minY)
+            origin.x = global.midX - size.width / 2
+            origin.y = global.minY - size.height - 12
+            if origin.y < visible.minY + 4 {
+                origin.y = global.maxY + 12
+                if origin.y + size.height > visible.maxY - 4 {
+                    // 区域几乎占满屏幕：放在区域内底部（SimpleShot 的窗口不会被录进去）
+                    origin.y = global.minY + 16
+                }
+            }
+            origin.x = min(max(origin.x, visible.minX + 4), visible.maxX - size.width - 4)
+        }
+        panel.setFrameOrigin(origin)
+        panel.orderFrontRegardless()
+        hud = panel
     }
 
     /// 录制区域外围的红色虚线框（画在区域外面，且 SimpleShot 自己的窗口不会被录进去）
@@ -507,5 +537,92 @@ final class TempRecordingStore {
         guard !RecordingController.shared.isRecording,
               let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
         for file in files { try? fm.removeItem(at: file) }
+    }
+}
+
+// MARK: - 录制中的悬浮控制条：● 00:12 ｜ ■ 结束录制
+
+final class RecordingHUD: NSPanel {
+    private var onStop: (() -> Void)?
+    private let timeLabel = NSTextField(labelWithString: "00:00")
+
+    static func make(onStop: @escaping () -> Void) -> RecordingHUD {
+        let panel = RecordingHUD(contentRect: NSRect(x: 0, y: 0, width: 196, height: 38),
+                                 styleMask: [.borderless, .nonactivatingPanel],
+                                 backing: .buffered, defer: false)
+        panel.onStop = onStop
+        panel.configure()
+        return panel
+    }
+
+    override var canBecomeKey: Bool { false }
+
+    private func configure() {
+        isFloatingPanel = true
+        level = .statusBar
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = true
+        hidesOnDeactivate = false
+        isReleasedWhenClosed = false
+        isMovableByWindowBackground = true
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+
+        let background = NSVisualEffectView(frame: NSRect(origin: .zero, size: frame.size))
+        background.material = .hudWindow
+        background.state = .active
+        background.blendingMode = .behindWindow
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 10
+        background.layer?.masksToBounds = true
+        contentView = background
+
+        let dot = NSView()
+        dot.wantsLayer = true
+        dot.layer?.backgroundColor = NSColor.systemRed.cgColor
+        dot.layer?.cornerRadius = 5
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        dot.widthAnchor.constraint(equalToConstant: 10).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: 10).isActive = true
+        // 红点闪烁
+        let blink = CABasicAnimation(keyPath: "opacity")
+        blink.fromValue = 1
+        blink.toValue = 0.25
+        blink.duration = 0.8
+        blink.autoreverses = true
+        blink.repeatCount = .infinity
+        dot.layer?.add(blink, forKey: "blink")
+
+        timeLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        timeLabel.textColor = .labelColor
+
+        let stop = FirstMouseButton(title: "结束录制", target: self, action: #selector(stopTapped))
+        stop.bezelStyle = .rounded
+        stop.controlSize = .small
+        stop.bezelColor = .systemRed
+        stop.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "结束录制")
+        stop.imagePosition = .imageLeading
+        stop.toolTip = "结束录制（也可以再按一次截图快捷键）"
+
+        let row = NSStackView(views: [dot, timeLabel, stop])
+        row.orientation = .horizontal
+        row.spacing = 10
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        background.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.centerYAnchor.constraint(equalTo: background.centerYAnchor),
+            row.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 14),
+            row.trailingAnchor.constraint(lessThanOrEqualTo: background.trailingAnchor, constant: -8),
+        ])
+    }
+
+    func update(elapsed: TimeInterval) {
+        let s = Int(elapsed)
+        timeLabel.stringValue = String(format: "%02d:%02d", s / 60, s % 60)
+    }
+
+    @objc private func stopTapped() {
+        onStop?()
     }
 }
