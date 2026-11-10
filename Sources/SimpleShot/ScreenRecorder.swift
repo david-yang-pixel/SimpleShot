@@ -51,7 +51,7 @@ final class RecordingController {
                 self.startDate = Date()
                 // 录窗口时窗口可能被移动，不画固定的虚线框
                 if !recordsWindow { self.showBorder(screen: screen, rect: rect) }
-                self.showHUD(screen: screen, rect: recordsWindow ? nil : rect)
+                self.showHUD(screen: screen, rect: rect)
                 self.startTimer()
             } catch {
                 self.showAlert("无法开始录屏", error.localizedDescription)
@@ -98,25 +98,21 @@ final class RecordingController {
         }
     }
 
-    /// 悬浮控制条：放在录制区域外面（下方，放不下就上方）；录窗口时放屏幕顶部中间
-    private func showHUD(screen: NSScreen, rect: CGRect?) {
+    /// 悬浮控制条：放在选区右下角——优先在选区正下方（区域外），下方放不下就放进选区内右下角
+    /// （SimpleShot 自己的窗口不会被录进去）
+    private func showHUD(screen: NSScreen, rect: CGRect) {
         let panel = RecordingHUD.make { [weak self] in self?.stop() }
         let size = panel.frame.size
         let visible = screen.visibleFrame
-        var origin = CGPoint(x: visible.midX - size.width / 2, y: visible.maxY - size.height - 12)
-        if let rect {
-            let global = rect.offsetBy(dx: screen.frame.minX, dy: screen.frame.minY)
-            origin.x = global.midX - size.width / 2
-            origin.y = global.minY - size.height - 12
-            if origin.y < visible.minY + 4 {
-                origin.y = global.maxY + 12
-                if origin.y + size.height > visible.maxY - 4 {
-                    // 区域几乎占满屏幕：放在区域内底部（SimpleShot 的窗口不会被录进去）
-                    origin.y = global.minY + 16
-                }
-            }
-            origin.x = min(max(origin.x, visible.minX + 4), visible.maxX - size.width - 4)
+        let global = rect.offsetBy(dx: screen.frame.minX, dy: screen.frame.minY)
+        let gap: CGFloat = 8
+        var origin = CGPoint(x: global.maxX - size.width, y: global.minY - size.height - gap)
+        if origin.y < visible.minY + 4 {
+            origin.y = global.minY + gap
+            origin.x = global.maxX - size.width - gap
         }
+        origin.x = min(max(origin.x, visible.minX + 4), visible.maxX - size.width - 4)
+        origin.y = min(max(origin.y, visible.minY + 4), visible.maxY - size.height - 4)
         panel.setFrameOrigin(origin)
         panel.orderFrontRegardless()
         hud = panel
@@ -175,6 +171,7 @@ final class RecordingSession: NSObject, SCStreamDelegate, SCRecordingOutputDeleg
     private let url: URL
     private let completion: @MainActor (Result<URL, Error>) -> Void
     private var stream: SCStream?
+    private var recordingOutput: SCRecordingOutput? // 显式持有，直到录制结束
     @MainActor private var delivered = false
 
     init(url: URL, completion: @escaping @MainActor (Result<URL, Error>) -> Void) {
@@ -228,6 +225,7 @@ final class RecordingSession: NSObject, SCStreamDelegate, SCRecordingOutputDeleg
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addRecordingOutput(output)
+        self.recordingOutput = output
         try await stream.startCapture()
         self.stream = stream
         return recordsWindow
@@ -278,7 +276,7 @@ final class RecordingPreviewController {
     private var gifButton: NSButton?
 
     func show(url: URL) {
-        close()
+        closePanel() // 只关掉旧预览，不触发清理（否则会把刚录好的文件删掉）
         self.url = url
         copyFile(url)
 
@@ -380,10 +378,14 @@ final class RecordingPreviewController {
 
     var isShowing: Bool { panel != nil }
 
-    private func close() {
+    private func closePanel() {
         autoCloseTask?.cancel()
         panel?.orderOut(nil)
         panel = nil
+    }
+
+    private func close() {
+        closePanel()
         TempRecordingStore.shared.cleanUpIfClipboardChanged()
     }
 
