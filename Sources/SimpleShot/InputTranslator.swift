@@ -40,7 +40,7 @@ final class InputTranslateController: NSObject, NSTextViewDelegate {
     private var inputView: NSTextView!
     private var outputView: NSTextView!
     private let directionLabel = NSTextField(labelWithString: "译文")
-    private let statusLabel = NSTextField(labelWithString: "回车翻译，⇧回车换行，Esc 关闭")
+    private let statusLabel = NSTextField(labelWithString: "回车翻译，⇧回车换行；点窗口外或按 Esc 关闭")
     private let spinner = NSProgressIndicator()
     private let copyButton = NSButton(title: "复制译文", target: nil, action: nil)
     private var runner: TranslationRunner?
@@ -50,6 +50,29 @@ final class InputTranslateController: NSObject, NSTextViewDelegate {
     private override init() {
         super.init()
         buildPanel()
+        installClickOutsideMonitors()
+    }
+
+    /// 在窗口外点击即关闭：其他应用里的点击用全局监听，SimpleShot 自己其他窗口里的点击用本地监听
+    private func installClickOutsideMonitors() {
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.closeIfClickedOutside()
+            }
+        }
+        NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            MainActor.assumeIsolated {
+                if event.window !== self?.panel { self?.closeIfClickedOutside() }
+            }
+            return event
+        }
+    }
+
+    private func closeIfClickedOutside() {
+        guard panel.isVisible, panel.attachedSheet == nil,
+              !panel.frame.contains(NSEvent.mouseLocation) else { return }
+        panel.orderOut(nil)
     }
 
     /// 快捷键：没显示就打开，正在显示就关闭
