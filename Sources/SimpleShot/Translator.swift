@@ -79,6 +79,88 @@ struct TranslationHost: View {
     }
 }
 
+// MARK: - 翻译执行（截图翻译和划词翻译共用）
+
+enum TranslationRunnerError: LocalizedError {
+    case message(String)
+    var errorDescription: String? {
+        switch self { case .message(let s): return s }
+    }
+}
+
+/// 按设置选择翻译引擎（系统翻译 / AI 大模型）并执行翻译。
+/// 系统翻译需要把一个隐藏的 SwiftUI 视图挂到窗口上，所以要传入 hostView。
+@MainActor
+final class TranslationRunner {
+    struct Plan {
+        let direction: String // 例如“英语 → 简体中文，DeepSeek（deepseek-chat）”
+        let busyText: String
+    }
+
+    private weak var hostView: NSView?
+    private var model: AnyObject? // macOS 15+ 时为 TranslationModel
+
+    init(hostView: NSView) {
+        self.hostView = hostView
+    }
+
+    func translate(_ text: String, onStart: (Plan) -> Void,
+                   completion: @escaping (Result<String, Error>) -> Void) {
+        let direction = TranslationDirection.decide(for: text)
+        let sourceName = TranslationDirection.displayName(direction.source)
+        let targetName = TranslationDirection.displayName(direction.target)
+
+        if Settings.shared.translationEngine == .ai {
+            let config = Settings.shared.aiConfig
+            let host = URL(string: config.baseURL)?.host ?? ""
+            let isLocal = host == "localhost" || host == "127.0.0.1" || host.hasSuffix(".local")
+            if config.apiKey.isEmpty && !isLocal {
+                completion(.failure(TranslationRunnerError.message("请先在 设置 › 翻译引擎 里填写 API Key")))
+                return
+            }
+            onStart(Plan(direction: "\(sourceName) → \(targetName)，\(config.displayName)",
+                         busyText: "正在用 \(config.displayName) 翻译…"))
+            Task { @MainActor in
+                do {
+                    completion(.success(try await AITranslator.translate(text, to: targetName, config: config)))
+                } catch {
+                    completion(.failure(error))
+                }
+            }
+            return
+        }
+
+        guard #available(macOS 15.0, *) else {
+            completion(.failure(TranslationRunnerError.message("系统翻译需要 macOS 15 或更高版本，可在设置中改用 AI 大模型")))
+            return
+        }
+        onStart(Plan(direction: "\(sourceName) → \(targetName)",
+                     busyText: "正在翻译…（某种语言首次使用时，系统会提示下载语言包）"))
+        Task { @MainActor in
+            if let source = direction.source {
+                let status = await LanguageAvailability().status(from: source, to: direction.target)
+                if status == .unsupported {
+                    completion(.failure(TranslationRunnerError.message("系统翻译暂不支持\(sourceName)→\(targetName)")))
+                    return
+                }
+            }
+            self.translationModel().translate(text, from: direction.source, to: direction.target,
+                                              completion: completion)
+        }
+    }
+
+    @available(macOS 15.0, *)
+    private func translationModel() -> TranslationModel {
+        if let existing = model as? TranslationModel { return existing }
+        let created = TranslationModel()
+        model = created
+        let host = NSHostingView(rootView: TranslationHost(model: created))
+        host.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
+        hostView?.addSubview(host)
+        return created
+    }
+}
+
 // MARK: - 翻译结果窗口
 
 /// 上半部分原文（可编辑后重新翻译），下半部分译文
@@ -93,7 +175,6 @@ final class TranslateWindowController: NSWindowController, NSWindowDelegate {
     private let spinner = NSProgressIndicator()
     private let copyButton = NSButton(title: "复制译文", target: nil, action: nil)
     private let retranslateButton = NSButton(title: "重新翻译", target: nil, action: nil)
-    private var model: AnyObject? // macOS 15+ 时为 TranslationModel
 
     static func show(recognizing image: CGImage) {
         let controller = TranslateWindowController()
@@ -213,79 +294,24 @@ final class TranslateWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: 翻译
 
+    private lazy var runner = TranslationRunner(hostView: window?.contentView ?? NSView())
+
     private func translate(_ text: String) {
-        if Settings.shared.translationEngine == .ai {
-            translateWithAI(text)
-            return
-        }
-        guard #available(macOS 15.0, *) else {
-            finish("翻译功能需要 macOS 15 或更高版本")
-            return
-        }
-        let direction = TranslationDirection.decide(for: text)
-        directionLabel.stringValue = "译文（\(TranslationDirection.displayName(direction.source)) → \(TranslationDirection.displayName(direction.target))）"
-        setBusy("正在翻译…（某种语言首次使用时，系统会提示下载语言包）")
         let start = Date()
-
-        Task { @MainActor in
-            if let source = direction.source {
-                let status = await LanguageAvailability().status(from: source, to: direction.target)
-                if status == .unsupported {
-                    self.finish("系统翻译暂不支持\(TranslationDirection.displayName(source))→\(TranslationDirection.displayName(direction.target))")
-                    return
-                }
-            }
-            self.translationModel().translate(text, from: direction.source, to: direction.target) { [weak self] result in
-                guard let self else { return }
-                switch result {
-                case .success(let translated):
-                    self.targetView.string = translated
-                    self.copyButton.isEnabled = true
-                    self.finish(String(format: "翻译完成，用时 %.1f 秒", Date().timeIntervalSince(start)))
-                case .failure(let error):
-                    self.finish("翻译失败：\(error.localizedDescription)")
-                }
-            }
-        }
-    }
-
-    /// 用用户配置的 AI 模型翻译
-    private func translateWithAI(_ text: String) {
-        let config = Settings.shared.aiConfig
-        let direction = TranslationDirection.decide(for: text)
-        let targetName = TranslationDirection.displayName(direction.target)
-        directionLabel.stringValue = "译文（\(TranslationDirection.displayName(direction.source)) → \(targetName)，\(config.displayName)）"
-
-        let host = URL(string: config.baseURL)?.host ?? ""
-        let isLocal = host == "localhost" || host == "127.0.0.1" || host.hasSuffix(".local")
-        if config.apiKey.isEmpty && !isLocal {
-            finish("请先在 设置 › 翻译引擎 里填写 API Key")
-            return
-        }
-
-        setBusy("正在用 \(config.displayName) 翻译…")
-        let start = Date()
-        Task { @MainActor in
-            do {
-                let translated = try await AITranslator.translate(text, to: targetName, config: config)
+        runner.translate(text, onStart: { [weak self] plan in
+            self?.directionLabel.stringValue = "译文（\(plan.direction)）"
+            self?.setBusy(plan.busyText)
+        }, completion: { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let translated):
                 self.targetView.string = translated
                 self.copyButton.isEnabled = true
                 self.finish(String(format: "翻译完成，用时 %.1f 秒", Date().timeIntervalSince(start)))
-            } catch {
+            case .failure(let error):
                 self.finish("翻译失败：\(error.localizedDescription)")
             }
-        }
-    }
-
-    @available(macOS 15.0, *)
-    private func translationModel() -> TranslationModel {
-        if let existing = model as? TranslationModel { return existing }
-        let created = TranslationModel()
-        model = created
-        let host = NSHostingView(rootView: TranslationHost(model: created))
-        host.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
-        window?.contentView?.addSubview(host)
-        return created
+        })
     }
 
     private func setBusy(_ text: String) {

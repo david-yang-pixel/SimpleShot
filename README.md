@@ -1,6 +1,6 @@
 # SimpleShot
 
-一个简约的 macOS 截图工具：区域 / 窗口 / 全屏截图 + 截图后标注 + 提取文字 + 翻译，完成后直接复制到剪贴板（不存文件）。
+一个简约的 macOS 截图工具：区域 / 窗口 / 全屏截图 + 截图后标注 + 提取文字 + 翻译 + 划词翻译，完成后直接复制到剪贴板（不存文件）。
 
 - 原生 Swift + AppKit，常驻菜单栏，不占 Dock
 - 默认快捷键 `⌥A`，可在设置中修改，并自动检测冲突
@@ -65,6 +65,10 @@ cd SimpleShot
 OpenAI、Ollama（本机）或 Claude，再填入 API Key，点「测试」确认可用。支持任意 **OpenAI 兼容接口**（自定义地址与模型名）
 和 **Anthropic Claude** 接口。API Key 保存在 macOS 钥匙串中；翻译时只发送识别出的文字，不上传截图。
 
+**划词翻译**：在任意应用里用鼠标划选（或双击选词）一段**外文**，旁边会出现一个翻译小图标，点一下即在浮窗中显示译文
+（选中中文不会出现图标）。使用当前设置的翻译引擎；按 Esc 或点击浮窗外部关闭。需要授予「辅助功能」权限，
+可在设置 › 划词翻译 中关闭。读取选中文字优先用辅助功能接口，个别不支持的应用会模拟 `⌘C` 读取并恢复原剪贴板。
+
 ## 快捷键突然失灵？
 
 如果某个应用开启了 macOS 的「安全输入」（通常是密码输入框处于激活状态，例如浏览器登录页），
@@ -107,6 +111,7 @@ Sources/SimpleShot/
   TextRecognizer.swift         文字识别 + 识别结果窗口
   Translator.swift             翻译（系统 Translation 框架）+ 翻译结果窗口
   AITranslator.swift           AI 大模型翻译（OpenAI 兼容 / Claude）+ 钥匙串存储
+  SelectionTranslator.swift    划词翻译：读取选中文字、翻译图标与浮窗
   Helpers.swift                权限提示、Toast
 ```
 

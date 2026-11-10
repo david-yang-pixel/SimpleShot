@@ -15,6 +15,19 @@ final class Settings {
         static let aiKind = "aiKind"
         static let aiBaseURL = "aiBaseURL"
         static let aiModel = "aiModel"
+        static let selectionTranslateEnabled = "selectionTranslateEnabled"
+        static let accessibilityPromptShown = "accessibilityPromptShown"
+    }
+
+    /// 划词翻译（选中外文后显示翻译图标），默认开启
+    var selectionTranslateEnabled: Bool {
+        get { defaults.object(forKey: Key.selectionTranslateEnabled) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.selectionTranslateEnabled) }
+    }
+
+    var accessibilityPromptShown: Bool {
+        get { defaults.bool(forKey: Key.accessibilityPromptShown) }
+        set { defaults.set(newValue, forKey: Key.accessibilityPromptShown) }
     }
 
     enum TranslationEngine: String {

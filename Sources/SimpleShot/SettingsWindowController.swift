@@ -17,6 +17,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let apiKeyField = NSSecureTextField(string: "")
     private let testButton = NSButton(title: "测试", target: nil, action: nil)
     private let testResultLabel = NSTextField(wrappingLabelWithString: "")
+    private let selectionCheckbox = NSButton(checkboxWithTitle: "选中外文后显示翻译图标", target: nil, action: nil)
+    private let accessibilityButton = NSButton(title: "授予辅助功能权限", target: nil, action: nil)
     private var grid: NSGridView!
     private let aiRows = 5...10
 
@@ -55,6 +57,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         modelField.stringValue = s.aiModel
         apiKeyField.stringValue = KeychainStore.apiKey(forBaseURL: s.aiBaseURL)
         presetPopup.selectItem(at: 0)
+        selectionCheckbox.state = s.selectionTranslateEnabled ? .on : .off
+        accessibilityButton.isHidden = SelectedTextReader.isTrusted || !s.selectionTranslateEnabled
         updateAIRowsVisibility()
     }
 
@@ -110,6 +114,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         testResultLabel.preferredMaxLayoutWidth = 230
         testResultLabel.stringValue = "只会发送识别出的文字，不会上传截图"
 
+        selectionCheckbox.target = self
+        selectionCheckbox.action = #selector(toggleSelectionTranslate)
+        accessibilityButton.bezelStyle = .rounded
+        accessibilityButton.controlSize = .small
+        accessibilityButton.target = self
+        accessibilityButton.action = #selector(grantAccessibility)
+
         let usage = NSTextField(wrappingLabelWithString:
             "使用：悬停单击选窗口，桌面单击截全屏，拖动框选区域。\n截好后回车 / 双击即复制到剪贴板，Esc 取消，右键重选。")
         usage.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -139,6 +150,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             [label("模型："), modelField],
             [label("API Key："), apiKeyField],
             [NSGridCell.emptyContentView, row([testButton, testResultLabel])],
+            [label("划词翻译："), row([selectionCheckbox, accessibilityButton])],
             [NSGridCell.emptyContentView, usage],
             [NSGridCell.emptyContentView, versionLabel],
         ])
@@ -148,7 +160,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         grid.rowAlignment = .firstBaseline
         grid.row(at: 1).topPadding = -4
         grid.row(at: 4).topPadding = 10
-        grid.row(at: 11).topPadding = 8
+        grid.row(at: 11).topPadding = 6
+        grid.row(at: 12).topPadding = 8
         grid.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(grid)
         NSLayoutConstraint.activate([
@@ -227,6 +240,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         } else {
             saveAIFields(saveKey: true)
         }
+    }
+
+    @objc private func toggleSelectionTranslate() {
+        let on = selectionCheckbox.state == .on
+        Settings.shared.selectionTranslateEnabled = on
+        SelectionTranslator.shared.applySetting()
+        if on && !SelectedTextReader.isTrusted { SelectedTextReader.requestTrust() }
+        accessibilityButton.isHidden = SelectedTextReader.isTrusted || !on
+    }
+
+    @objc private func grantAccessibility() {
+        SelectedTextReader.requestTrust()
+        SelectedTextReader.openAccessibilitySettings()
     }
 
     @objc private func testAI() {

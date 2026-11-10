@@ -37,6 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         SecureInputMonitor.shared.start()
 
+        SelectionTranslator.shared.applySetting()
+
         if !ScreenCapturer.hasPermission() {
             ScreenCapturer.requestPermission()
         }
