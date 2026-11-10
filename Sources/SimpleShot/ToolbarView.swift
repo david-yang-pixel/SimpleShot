@@ -8,6 +8,7 @@ protocol ToolbarViewDelegate: AnyObject {
     func toolbarUndo(_ toolbar: ToolbarView)
     func toolbarExtractText(_ toolbar: ToolbarView)
     func toolbarTranslate(_ toolbar: ToolbarView)
+    func toolbarStartRecording(_ toolbar: ToolbarView, systemAudio: Bool, microphone: Bool)
     func toolbarCancel(_ toolbar: ToolbarView)
     func toolbarConfirm(_ toolbar: ToolbarView)
 }
@@ -19,6 +20,11 @@ final class ToolbarView: NSVisualEffectView {
 
     private var toolButtons: [AnnotationTool: NSButton] = [:]
     private let optionsRow = NSStackView()
+    // 录屏选项：系统声音 / 麦克风 / 开始录制
+    private let recordRow = NSStackView()
+    private let systemAudioCheckbox = NSButton(checkboxWithTitle: "系统声音", target: nil, action: nil)
+    private let microphoneCheckbox = NSButton(checkboxWithTitle: "麦克风", target: nil, action: nil)
+    private var recordButton: NSButton?
     private var sizeDots: [DotView] = []
     private var colorDots: [DotView] = []
 
@@ -65,6 +71,9 @@ final class ToolbarView: NSVisualEffectView {
         mainRow.addArrangedSubview(makeSeparator())
         mainRow.addArrangedSubview(makeButton("text.viewfinder", "提取文字", #selector(extractTextTapped)))
         mainRow.addArrangedSubview(makeButton("translate", "翻译", #selector(translateTapped)))
+        let record = makeButton("record.circle", "录屏", #selector(recordTapped))
+        recordButton = record
+        mainRow.addArrangedSubview(record)
         mainRow.addArrangedSubview(makeSeparator())
         let cancel = makeButton("xmark", "取消 (Esc)", #selector(cancelTapped))
         cancel.contentTintColor = .systemRed
@@ -94,7 +103,26 @@ final class ToolbarView: NSVisualEffectView {
         }
         optionsRow.isHidden = true
 
-        let column = NSStackView(views: [mainRow, optionsRow])
+        recordRow.orientation = .horizontal
+        recordRow.spacing = 10
+        systemAudioCheckbox.state = Settings.shared.recordSystemAudio ? .on : .off
+        microphoneCheckbox.state = Settings.shared.recordMicrophone ? .on : .off
+        systemAudioCheckbox.image = NSImage(systemSymbolName: "speaker.wave.2", accessibilityDescription: nil)
+        microphoneCheckbox.image = NSImage(systemSymbolName: "mic", accessibilityDescription: nil)
+        systemAudioCheckbox.imagePosition = .imageLeading
+        microphoneCheckbox.imagePosition = .imageLeading
+        let start = NSButton(title: "开始录制", target: self, action: #selector(startRecordingTapped))
+        start.bezelStyle = .rounded
+        start.bezelColor = .systemRed
+        start.image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: nil)
+        start.imagePosition = .imageLeading
+        recordRow.addArrangedSubview(systemAudioCheckbox)
+        recordRow.addArrangedSubview(microphoneCheckbox)
+        recordRow.addArrangedSubview(start)
+        recordRow.edgeInsets = NSEdgeInsets(top: 2, left: 6, bottom: 4, right: 4)
+        recordRow.isHidden = true
+
+        let column = NSStackView(views: [mainRow, optionsRow, recordRow])
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 4
@@ -141,6 +169,31 @@ final class ToolbarView: NSVisualEffectView {
         delegate?.toolbar(self, didSelect: selectedTool)
     }
 
+    @objc private func recordTapped() {
+        if selectedTool != nil {
+            setTool(nil)
+            delegate?.toolbar(self, didSelect: nil)
+        }
+        recordRow.isHidden.toggle()
+        let on = !recordRow.isHidden
+        recordButton?.contentTintColor = on ? .systemRed : .labelColor
+        recordButton?.layer?.backgroundColor = on ? NSColor.systemRed.withAlphaComponent(0.15).cgColor : nil
+        delegate?.toolbarDidChangeSize(self)
+    }
+
+    @objc private func startRecordingTapped() {
+        let systemAudio = systemAudioCheckbox.state == .on
+        let microphone = microphoneCheckbox.state == .on
+        Settings.shared.recordSystemAudio = systemAudio
+        Settings.shared.recordMicrophone = microphone
+        delegate?.toolbarStartRecording(self, systemAudio: systemAudio, microphone: microphone)
+    }
+
+    var isRecordOptionsVisible: Bool { !recordRow.isHidden }
+
+    /// 录屏选项展开时按回车 = 开始录制
+    func triggerStartRecording() { startRecordingTapped() }
+
     func setTool(_ tool: AnnotationTool?) {
         selectedTool = tool
         for (t, b) in toolButtons {
@@ -151,6 +204,11 @@ final class ToolbarView: NSVisualEffectView {
         // 马赛克只需要尺寸，不需要颜色
         for dot in colorDots { dot.isHidden = tool == .mosaic }
         optionsRow.isHidden = tool == nil
+        if tool != nil && !recordRow.isHidden {
+            recordRow.isHidden = true
+            recordButton?.contentTintColor = .labelColor
+            recordButton?.layer?.backgroundColor = nil
+        }
         delegate?.toolbarDidChangeSize(self)
     }
 

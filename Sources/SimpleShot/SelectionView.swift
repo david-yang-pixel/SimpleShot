@@ -13,6 +13,8 @@ protocol SelectionViewDelegate: AnyObject {
     func selectionViewDidReset(_ view: SelectionView)
     /// 结束截图
     func selectionView(_ view: SelectionView, finishWith action: CaptureAction, image: CGImage?, pointSize: CGSize)
+    /// 开始录屏（rect 为本屏坐标，单位点，原点在左下）
+    func selectionView(_ view: SelectionView, startRecordingIn rect: CGRect, systemAudio: Bool, microphone: Bool)
 }
 
 /// 覆盖整块屏幕的交互视图：悬停高亮窗口、框选、调整选区、标注。
@@ -349,7 +351,11 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch code {
         case kVK_Return, kVK_ANSI_KeypadEnter:
-            finish(.copy)
+            if let toolbar, toolbar.isRecordOptionsVisible {
+                toolbar.triggerStartRecording()
+            } else {
+                finish(.copy)
+            }
         case kVK_LeftArrow:
             nudge(dx: -step, dy: 0)
         case kVK_RightArrow:
@@ -526,6 +532,12 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
     func toolbarUndo(_ toolbar: ToolbarView) { undo() }
     func toolbarExtractText(_ toolbar: ToolbarView) { finish(.extractText) }
     func toolbarTranslate(_ toolbar: ToolbarView) { finish(.translate) }
+
+    func toolbarStartRecording(_ toolbar: ToolbarView, systemAudio: Bool, microphone: Bool) {
+        commitTextField()
+        guard phase == .selected else { return }
+        delegate?.selectionView(self, startRecordingIn: selection, systemAudio: systemAudio, microphone: microphone)
+    }
     func toolbarCancel(_ toolbar: ToolbarView) { finish(.cancel) }
     func toolbarConfirm(_ toolbar: ToolbarView) { finish(.copy) }
 

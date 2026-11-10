@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var captureItem: NSMenuItem!
     private var inputTranslateItem: NSMenuItem!
+    private var statusMenu: NSMenu!
     private var secureInputItem: NSMenuItem!
     private var secureInputSeparator: NSMenuItem!
     private let capture = CaptureController()
@@ -16,7 +17,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
 
         HotKeyManager.shared.handlers[.capture] = { [weak self] in
-            self?.capture.startCapture()
+            // 录屏中再按截图快捷键 = 停止录屏
+            if RecordingController.shared.isRecording {
+                RecordingController.shared.stop()
+            } else {
+                self?.capture.startCapture()
+            }
+        }
+        TempRecordingStore.shared.cleanLeftovers()
+        RecordingController.shared.onStateChange = { [weak self] recording, elapsed in
+            self?.updateRecordingState(recording, elapsed: elapsed)
         }
         HotKeyManager.shared.handlers[.inputTranslate] = {
             InputTranslateController.shared.toggle()
@@ -89,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "退出 SimpleShot", action: #selector(NSApplication.terminate(_:)),
                                 keyEquivalent: "q"))
         statusItem.menu = menu
+        statusMenu = menu
     }
 
     /// 主菜单（不显示，但让文本框支持 ⌘C/⌘V 等编辑快捷键，设置窗口支持 ⌘W）
@@ -153,7 +164,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - 安全输入提醒
 
+    // MARK: - 录屏状态（菜单栏显示红色停止按钮和计时，点击停止）
+
+    private func updateRecordingState(_ recording: Bool, elapsed: TimeInterval) {
+        guard let button = statusItem.button else { return }
+        if recording {
+            let s = Int(elapsed)
+            statusItem.length = NSStatusItem.variableLength
+            statusItem.menu = nil
+            let image = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "停止录屏")
+            image?.isTemplate = false
+            button.image = image
+            button.contentTintColor = .systemRed
+            button.imagePosition = .imageLeading
+            button.title = String(format: " %02d:%02d", s / 60, s % 60)
+            button.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+            button.target = self
+            button.action = #selector(stopRecording)
+            button.toolTip = "点击停止录屏（或再按一次截图快捷键）"
+        } else {
+            statusItem.length = NSStatusItem.squareLength
+            button.title = ""
+            button.contentTintColor = nil
+            button.imagePosition = .imageOnly
+            button.action = nil
+            button.target = nil
+            statusItem.menu = statusMenu
+            updateSecureInputState(SecureInputMonitor.shared.blocker)
+        }
+    }
+
+    @objc private func stopRecording() {
+        RecordingController.shared.stop()
+    }
+
     private func setStatusIcon(blocked: Bool) {
+        // 录屏时菜单栏显示的是录屏状态
+        if RecordingController.shared.isRecording { return }
         guard let button = statusItem.button else { return }
         let name = blocked ? "exclamationmark.triangle" : "camera.viewfinder"
         let image = NSImage(systemSymbolName: name, accessibilityDescription: "SimpleShot")

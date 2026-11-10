@@ -18,6 +18,19 @@ final class Settings {
         static let aiModel = "aiModel"
         static let selectionTranslateEnabled = "selectionTranslateEnabled"
         static let accessibilityPromptShown = "accessibilityPromptShown"
+        static let recordSystemAudio = "recordSystemAudio"
+        static let recordMicrophone = "recordMicrophone"
+    }
+
+    /// 录屏时是否录系统声音 / 麦克风（记住上次的选择）
+    var recordSystemAudio: Bool {
+        get { defaults.bool(forKey: Key.recordSystemAudio) }
+        set { defaults.set(newValue, forKey: Key.recordSystemAudio) }
+    }
+
+    var recordMicrophone: Bool {
+        get { defaults.bool(forKey: Key.recordMicrophone) }
+        set { defaults.set(newValue, forKey: Key.recordMicrophone) }
     }
 
     /// 划词翻译（选中外文后显示翻译图标），默认开启

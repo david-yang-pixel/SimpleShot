@@ -79,7 +79,8 @@ if [ -f Resources/AppIcon.png ]; then
 fi
 
 echo "==> 签名 (${SIGN_IDENTITY})"
-codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" "$APP"
+codesign --force --deep --options runtime --entitlements Resources/SimpleShot.entitlements \
+    --sign "$SIGN_IDENTITY" "$APP"
 
 if [ "${1:-}" = "--dmg" ]; then
     echo "==> 制作 DMG"

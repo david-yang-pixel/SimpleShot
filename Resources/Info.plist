@@ -31,6 +31,8 @@
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>录屏时如果选择了“麦克风”，SimpleShot 需要录制你的声音。</string>
     <key>NSHumanReadableCopyright</key>
     <string>SimpleShot — 简约截图工具</string>
 </dict>
