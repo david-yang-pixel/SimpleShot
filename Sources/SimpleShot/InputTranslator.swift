@@ -44,7 +44,6 @@ final class InputTranslateController: NSObject, NSTextViewDelegate {
     private let spinner = NSProgressIndicator()
     private let copyButton = NSButton(title: "复制译文", target: nil, action: nil)
     private var runner: TranslationRunner?
-    private var hasPositioned = false
     private var requestID = 0
 
     private override init() {
@@ -85,14 +84,13 @@ final class InputTranslateController: NSObject, NSTextViewDelegate {
     }
 
     func show() {
-        if !hasPositioned {
-            let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
-            if let visible = screen?.visibleFrame {
-                let size = panel.frame.size
-                panel.setFrameOrigin(CGPoint(x: visible.midX - size.width / 2,
-                                             y: visible.minY + visible.height * 0.62 - size.height / 2))
-            }
-            hasPositioned = true
+        // 每次都出现在鼠标所在屏幕的右上角（菜单栏下方）
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+        if let visible = screen?.visibleFrame {
+            let size = panel.frame.size
+            let margin: CGFloat = 12
+            panel.setFrameOrigin(CGPoint(x: visible.maxX - size.width - margin,
+                                         y: visible.maxY - size.height - margin))
         }
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(inputView)
