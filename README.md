@@ -61,6 +61,10 @@ cd SimpleShot
 外文自动翻成简体中文，中文翻成英文。弹窗上半部分是原文（可修改后「重新翻译」），下半部分是译文，
 「复制译文」快捷键 `⌘↩`。某种语言首次使用时系统会提示下载语言包，之后可离线使用。
 
+**用自己的 AI 模型翻译**：设置 › 翻译引擎 选「AI 大模型」，可用「快速填写」选择 DeepSeek、通义千问、Kimi、智谱 GLM、
+OpenAI、Ollama（本机）或 Claude，再填入 API Key，点「测试」确认可用。支持任意 **OpenAI 兼容接口**（自定义地址与模型名）
+和 **Anthropic Claude** 接口。API Key 保存在 macOS 钥匙串中；翻译时只发送识别出的文字，不上传截图。
+
 ## 快捷键突然失灵？
 
 如果某个应用开启了 macOS 的「安全输入」（通常是密码输入框处于激活状态，例如浏览器登录页），
@@ -102,6 +106,7 @@ Sources/SimpleShot/
   SecureInputMonitor.swift     检测“安全输入”导致的快捷键失灵
   TextRecognizer.swift         文字识别 + 识别结果窗口
   Translator.swift             翻译（系统 Translation 框架）+ 翻译结果窗口
+  AITranslator.swift           AI 大模型翻译（OpenAI 兼容 / Claude）+ 钥匙串存储
   Helpers.swift                权限提示、Toast
 ```
 

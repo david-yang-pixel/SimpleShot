@@ -214,6 +214,10 @@ final class TranslateWindowController: NSWindowController, NSWindowDelegate {
     // MARK: 翻译
 
     private func translate(_ text: String) {
+        if Settings.shared.translationEngine == .ai {
+            translateWithAI(text)
+            return
+        }
         guard #available(macOS 15.0, *) else {
             finish("翻译功能需要 macOS 15 或更高版本")
             return
@@ -241,6 +245,34 @@ final class TranslateWindowController: NSWindowController, NSWindowDelegate {
                 case .failure(let error):
                     self.finish("翻译失败：\(error.localizedDescription)")
                 }
+            }
+        }
+    }
+
+    /// 用用户配置的 AI 模型翻译
+    private func translateWithAI(_ text: String) {
+        let config = Settings.shared.aiConfig
+        let direction = TranslationDirection.decide(for: text)
+        let targetName = TranslationDirection.displayName(direction.target)
+        directionLabel.stringValue = "译文（\(TranslationDirection.displayName(direction.source)) → \(targetName)，\(config.displayName)）"
+
+        let host = URL(string: config.baseURL)?.host ?? ""
+        let isLocal = host == "localhost" || host == "127.0.0.1" || host.hasSuffix(".local")
+        if config.apiKey.isEmpty && !isLocal {
+            finish("请先在 设置 › 翻译引擎 里填写 API Key")
+            return
+        }
+
+        setBusy("正在用 \(config.displayName) 翻译…")
+        let start = Date()
+        Task { @MainActor in
+            do {
+                let translated = try await AITranslator.translate(text, to: targetName, config: config)
+                self.targetView.string = translated
+                self.copyButton.isEnabled = true
+                self.finish(String(format: "翻译完成，用时 %.1f 秒", Date().timeIntervalSince(start)))
+            } catch {
+                self.finish("翻译失败：\(error.localizedDescription)")
             }
         }
     }

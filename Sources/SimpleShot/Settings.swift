@@ -11,6 +11,40 @@ final class Settings {
         static let autoCheckUpdates = "autoCheckUpdates"
         static let skippedVersion = "skippedVersion"
         static let lastUpdateCheck = "lastUpdateCheck"
+        static let translationEngine = "translationEngine"
+        static let aiKind = "aiKind"
+        static let aiBaseURL = "aiBaseURL"
+        static let aiModel = "aiModel"
+    }
+
+    enum TranslationEngine: String {
+        case system, ai
+    }
+
+    var translationEngine: TranslationEngine {
+        get { TranslationEngine(rawValue: defaults.string(forKey: Key.translationEngine) ?? "") ?? .system }
+        set { defaults.set(newValue.rawValue, forKey: Key.translationEngine) }
+    }
+
+    var aiKind: AIProviderKind {
+        get { AIProviderKind(rawValue: defaults.string(forKey: Key.aiKind) ?? "") ?? AIPreset.deepSeek.kind }
+        set { defaults.set(newValue.rawValue, forKey: Key.aiKind) }
+    }
+
+    var aiBaseURL: String {
+        get { defaults.string(forKey: Key.aiBaseURL) ?? AIPreset.deepSeek.baseURL }
+        set { defaults.set(newValue, forKey: Key.aiBaseURL) }
+    }
+
+    var aiModel: String {
+        get { defaults.string(forKey: Key.aiModel) ?? AIPreset.deepSeek.model }
+        set { defaults.set(newValue, forKey: Key.aiModel) }
+    }
+
+    /// 当前的 AI 配置（API Key 从钥匙串读取）
+    var aiConfig: AIConfig {
+        AIConfig(kind: aiKind, baseURL: aiBaseURL, model: aiModel,
+                 apiKey: KeychainStore.apiKey(forBaseURL: aiBaseURL))
     }
 
     var autoCheckUpdates: Bool {
