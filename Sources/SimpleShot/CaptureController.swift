@@ -145,13 +145,14 @@ final class CaptureController: SelectionViewDelegate {
         }
     }
 
-    func selectionView(_ view: SelectionView, startRecordingIn rect: CGRect, systemAudio: Bool, microphone: Bool) {
+    func selectionView(_ view: SelectionView, startRecordingIn rect: CGRect, windowID: CGWindowID?,
+                       systemAudio: Bool, microphone: Bool) {
         let screen = view.shot.screen
         close()
         // 等遮罩窗口完全消失再开始录制
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 200_000_000)
-            RecordingController.shared.start(screen: screen, rect: rect,
+            RecordingController.shared.start(screen: screen, rect: rect, windowID: windowID,
                                              systemAudio: systemAudio, microphone: microphone)
         }
     }

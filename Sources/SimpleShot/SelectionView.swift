@@ -14,7 +14,9 @@ protocol SelectionViewDelegate: AnyObject {
     /// 结束截图
     func selectionView(_ view: SelectionView, finishWith action: CaptureAction, image: CGImage?, pointSize: CGSize)
     /// 开始录屏（rect 为本屏坐标，单位点，原点在左下）
-    func selectionView(_ view: SelectionView, startRecordingIn rect: CGRect, systemAudio: Bool, microphone: Bool)
+    /// windowID 不为空时单独录制该窗口（被遮挡、移动都能录到）
+    func selectionView(_ view: SelectionView, startRecordingIn rect: CGRect, windowID: CGWindowID?,
+                       systemAudio: Bool, microphone: Bool)
 }
 
 /// 覆盖整块屏幕的交互视图：悬停高亮窗口、框选、调整选区、标注。
@@ -41,6 +43,8 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
     private var phase: Phase = .choosing
     private var dragMode: DragMode = .none
     private var hoverRect: CGRect?
+    /// 单击选中的是某个窗口时记下它的 ID（录屏时单独录这个窗口）；手动框选或调整过选区则为 nil
+    private var selectedWindowID: CGWindowID?
     private var mousePoint: CGPoint?
     private var selection: CGRect = .zero
 
@@ -106,6 +110,11 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
     }
 
     // MARK: - Geometry
+
+    private func windowID(for rect: CGRect?) -> CGWindowID? {
+        guard let rect, let index = shot.windowRects.firstIndex(of: rect) else { return nil }
+        return shot.windowIDs[index]
+    }
 
     private func windowRect(at p: CGPoint) -> CGRect {
         shot.windowRects.first(where: { $0.contains(p) }) ?? bounds
@@ -256,6 +265,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
         case .pending:
             // 单击：选中高亮的窗口（桌面则为整屏）
             selection = hoverRect ?? bounds
+            selectedWindowID = windowID(for: hoverRect)
             let clickText = NSStringFromPoint(convert(event.locationInWindow, from: nil))
             let selText = NSStringFromRect(selection)
             let screenText = NSStringFromRect(bounds)
@@ -265,10 +275,14 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
         case .creating:
             if selection.width < 4 || selection.height < 4 {
                 selection = hoverRect ?? bounds
+                selectedWindowID = windowID(for: hoverRect)
+            } else {
+                selectedWindowID = nil
             }
             enterSelected()
-        case .moving, .resizing:
+        case .moving(_, let original), .resizing(_, let original):
             selection = snapped(selection)
+            if selection != original { selectedWindowID = nil } // 调整过选区就按区域录
             layoutToolbar()
         case .annotating:
             if let a = currentAnnotation, a.isMeaningful { annotations.append(a) }
@@ -301,6 +315,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
 
     private func resetToChoosing(at p: CGPoint) {
         discardTextField()
+        selectedWindowID = nil
         phase = .choosing
         dragMode = .none
         annotations.removeAll()
@@ -386,6 +401,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
     }
 
     private func nudge(dx: CGFloat, dy: CGFloat) {
+        selectedWindowID = nil
         selection = snapped(moved(selection, dx: dx, dy: dy))
         layoutToolbar()
         needsDisplay = true
@@ -503,6 +519,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
 
     private func layoutToolbar() {
         guard let tb = toolbar else { return }
+        tb.setRecordTarget(isWindow: selectedWindowID != nil)
         tb.layoutSubtreeIfNeeded()
         let size = tb.fittingSize
         var x = selection.maxX - size.width
@@ -536,7 +553,8 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
     func toolbarStartRecording(_ toolbar: ToolbarView, systemAudio: Bool, microphone: Bool) {
         commitTextField()
         guard phase == .selected else { return }
-        delegate?.selectionView(self, startRecordingIn: selection, systemAudio: systemAudio, microphone: microphone)
+        delegate?.selectionView(self, startRecordingIn: selection, windowID: selectedWindowID,
+                                systemAudio: systemAudio, microphone: microphone)
     }
     func toolbarCancel(_ toolbar: ToolbarView) { finish(.cancel) }
     func toolbarConfirm(_ toolbar: ToolbarView) { finish(.copy) }

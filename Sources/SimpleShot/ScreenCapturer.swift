@@ -9,6 +9,8 @@ struct ScreenShot {
     let image: CGImage
     /// 屏幕上可见窗口的矩形（屏幕本地坐标，单位：点，原点在左下角），按从前到后排序
     let windowRects: [CGRect]
+    /// 与 windowRects 一一对应的窗口 ID（用于单独录制某个窗口）
+    let windowIDs: [CGWindowID]
 }
 
 @MainActor
@@ -42,12 +44,13 @@ enum ScreenCapturer {
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
 
             let frame = screen.frame
-            let local: [CGRect] = windows.compactMap { rect in
+            let local: [(CGRect, CGWindowID)] = windows.compactMap { rect, id in
                 let clipped = rect.intersection(frame)
                 guard !clipped.isNull, clipped.width >= 10, clipped.height >= 10 else { return nil }
-                return clipped.offsetBy(dx: -frame.minX, dy: -frame.minY)
+                return (clipped.offsetBy(dx: -frame.minX, dy: -frame.minY), id)
             }
-            shots.append(ScreenShot(screen: screen, image: image, windowRects: local))
+            shots.append(ScreenShot(screen: screen, image: image,
+                                    windowRects: local.map(\.0), windowIDs: local.map(\.1)))
         }
         return shots
     }
@@ -57,7 +60,7 @@ enum ScreenCapturer {
     /// 屏幕上的普通窗口、Dock、菜单栏等（全局 Cocoa 坐标），从前到后。
     /// 窗口位置来自 ScreenCaptureKit（新系统上旧的 CGWindowList 可能拿不到其他应用的窗口），
     /// CGWindowList 只用来辅助确定前后顺序和过滤透明窗口，拿不到也不影响。
-    private static func onScreenWindowRects(content: SCShareableContent) -> [CGRect] {
+    private static func onScreenWindowRects(content: SCShareableContent) -> [(CGRect, CGWindowID)] {
         let myPID = ProcessInfo.processInfo.processIdentifier
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         let maxLayer = Int(CGWindowLevelForKey(.statusWindow))
@@ -95,7 +98,7 @@ enum ScreenCapturer {
             CGRect(x: f.minX, y: primaryHeight - f.maxY, width: f.width, height: f.height)
         }
 
-        var result: [CGRect] = []
+        var result: [(CGRect, CGWindowID)] = []
         for (_, w) in ordered {
             let rect = cocoaRect(w.frame)
             let app = w.owningApplication?.bundleIdentifier ?? w.owningApplication?.applicationName ?? "?"
@@ -106,7 +109,7 @@ enum ScreenCapturer {
             }
             let skipped = w.windowLayer > 0 && coversScreen
             log.info("window \(skipped ? "SKIP" : "use ", privacy: .public) app=\(app, privacy: .public) layer=\(w.windowLayer, privacy: .public) rect=\(NSStringFromRect(rect), privacy: .public)")
-            if !skipped { result.append(rect) }
+            if !skipped { result.append((rect, w.windowID)) }
         }
         return result
     }

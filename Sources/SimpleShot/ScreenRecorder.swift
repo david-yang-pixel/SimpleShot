@@ -20,7 +20,7 @@ final class RecordingController {
     private var timerTask: Task<Void, Never>?
     private var isStarting = false
 
-    func start(screen: NSScreen, rect: CGRect, systemAudio: Bool, microphone: Bool) {
+    func start(screen: NSScreen, rect: CGRect, windowID: CGWindowID? = nil, systemAudio: Bool, microphone: Bool) {
         guard !isRecording, !isStarting else { return }
         guard #available(macOS 15.0, *) else {
             showAlert("录屏需要 macOS 15 或更高版本")
@@ -43,12 +43,13 @@ final class RecordingController {
                 let session = RecordingSession(url: url) { [weak self] result in
                     self?.didFinish(result)
                 }
-                try await session.start(screen: screen, rect: rect,
-                                        systemAudio: systemAudio, microphone: useMicrophone)
+                let recordsWindow = try await session.start(screen: screen, rect: rect, windowID: windowID,
+                                                            systemAudio: systemAudio, microphone: useMicrophone)
                 self.session = session
                 self.isRecording = true
                 self.startDate = Date()
-                self.showBorder(screen: screen, rect: rect)
+                // 录窗口时窗口可能被移动，不画固定的虚线框
+                if !recordsWindow { self.showBorder(screen: screen, rect: rect) }
                 self.startTimer()
             } catch {
                 self.showAlert("无法开始录屏", error.localizedDescription)
@@ -151,27 +152,38 @@ final class RecordingSession: NSObject, SCStreamDelegate, SCRecordingOutputDeleg
         self.completion = completion
     }
 
+    /// 返回 true 表示按窗口录制
     @MainActor
-    func start(screen: NSScreen, rect: CGRect, systemAudio: Bool, microphone: Bool) async throws {
+    func start(screen: NSScreen, rect: CGRect, windowID: CGWindowID?,
+               systemAudio: Bool, microphone: Bool) async throws -> Bool {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let id = screen.displayID,
               let display = content.displays.first(where: { $0.displayID == id }) else {
             throw NSError(domain: "SimpleShot", code: 1, userInfo: [NSLocalizedDescriptionKey: "找不到要录制的屏幕"])
         }
-        // 不录 SimpleShot 自己的窗口（虚线框、浮窗等）
-        let myPID = ProcessInfo.processInfo.processIdentifier
-        let me = content.applications.filter { $0.processID == myPID }
-        let filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
-
-        let scale = CGFloat(filter.pointPixelScale)
-        func even(_ v: CGFloat) -> Int { max(16, Int((v * scale).rounded()) / 2 * 2) } // H.264 要求偶数尺寸
-
         let config = SCStreamConfiguration()
-        // sourceRect 使用屏幕内坐标，原点在左上
-        config.sourceRect = CGRect(x: rect.minX, y: screen.frame.height - rect.maxY,
-                                   width: rect.width, height: rect.height)
-        config.width = even(rect.width)
-        config.height = even(rect.height)
+        let filter: SCContentFilter
+        let recordsWindow: Bool
+        if let windowID, let window = content.windows.first(where: { $0.windowID == windowID }) {
+            // 单独录这个窗口：被其他窗口遮挡、被移动都能录到
+            filter = SCContentFilter(desktopIndependentWindow: window)
+            let scale = CGFloat(filter.pointPixelScale)
+            config.width = max(16, Int((filter.contentRect.width * scale).rounded()) / 2 * 2)
+            config.height = max(16, Int((filter.contentRect.height * scale).rounded()) / 2 * 2)
+            recordsWindow = true
+        } else {
+            // 录屏幕上的固定区域；不录 SimpleShot 自己的窗口（虚线框、浮窗等）
+            let myPID = ProcessInfo.processInfo.processIdentifier
+            let me = content.applications.filter { $0.processID == myPID }
+            filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
+            let scale = CGFloat(filter.pointPixelScale)
+            // sourceRect 使用屏幕内坐标，原点在左上；H.264 要求偶数尺寸
+            config.sourceRect = CGRect(x: rect.minX, y: screen.frame.height - rect.maxY,
+                                       width: rect.width, height: rect.height)
+            config.width = max(16, Int((rect.width * scale).rounded()) / 2 * 2)
+            config.height = max(16, Int((rect.height * scale).rounded()) / 2 * 2)
+            recordsWindow = false
+        }
         config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
         config.showsCursor = true
         config.capturesAudio = systemAudio
@@ -188,6 +200,7 @@ final class RecordingSession: NSObject, SCStreamDelegate, SCRecordingOutputDeleg
         try stream.addRecordingOutput(output)
         try await stream.startCapture()
         self.stream = stream
+        return recordsWindow
     }
 
     func stop() async {

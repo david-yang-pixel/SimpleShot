@@ -25,6 +25,7 @@ final class ToolbarView: NSVisualEffectView {
     private let systemAudioCheckbox = NSButton(checkboxWithTitle: "系统声音", target: nil, action: nil)
     private let microphoneCheckbox = NSButton(checkboxWithTitle: "麦克风", target: nil, action: nil)
     private var recordButton: NSButton?
+    private let recordTargetLabel = NSTextField(labelWithString: "")
     private var sizeDots: [DotView] = []
     private var colorDots: [DotView] = []
 
@@ -116,6 +117,9 @@ final class ToolbarView: NSVisualEffectView {
         start.bezelColor = .systemRed
         start.image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: nil)
         start.imagePosition = .imageLeading
+        recordTargetLabel.font = .systemFont(ofSize: 11)
+        recordTargetLabel.textColor = .secondaryLabelColor
+        recordRow.addArrangedSubview(recordTargetLabel)
         recordRow.addArrangedSubview(systemAudioCheckbox)
         recordRow.addArrangedSubview(microphoneCheckbox)
         recordRow.addArrangedSubview(start)
@@ -190,6 +194,13 @@ final class ToolbarView: NSVisualEffectView {
     }
 
     var isRecordOptionsVisible: Bool { !recordRow.isHidden }
+
+    func setRecordTarget(isWindow: Bool) {
+        recordTargetLabel.stringValue = isWindow ? "将录制：该窗口" : "将录制：该区域"
+        recordTargetLabel.toolTip = isWindow
+            ? "只录这个窗口，切换到其他窗口、窗口被遮挡或移动都能录到"
+            : "录屏幕上这块固定区域，区域里显示什么就录什么"
+    }
 
     /// 录屏选项展开时按回车 = 开始录制
     func triggerStartRecording() { startRecordingTapped() }
