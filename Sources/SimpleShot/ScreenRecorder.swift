@@ -253,7 +253,24 @@ final class RecordingSession: NSObject, SCStreamDelegate, SCRecordingOutputDeleg
             AppLog.capture.error("stopCapture failed: \(error.localizedDescription, privacy: .public)")
         }
         self.stream = nil
-        self.recordingOutput = nil
+        // recordingOutput 要保留到收到“文件已写完”的回调后再释放，否则回调会丢失
+
+        // 兜底：3 秒内没收到回调，就直接检查文件
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        await deliverFallbackIfNeeded()
+    }
+
+    @MainActor
+    private func deliverFallbackIfNeeded() {
+        guard !delivered else { return }
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
+        AppLog.capture.info("no finish callback; fallback file size=\(size, privacy: .public)")
+        if size > 0 {
+            deliver(.success(url))
+        } else {
+            deliver(.failure(NSError(domain: "SimpleShot", code: 5,
+                                     userInfo: [NSLocalizedDescriptionKey: "录屏文件没有生成"])))
+        }
     }
 
     // MARK: 回调
@@ -272,9 +289,10 @@ final class RecordingSession: NSObject, SCStreamDelegate, SCRecordingOutputDeleg
     }
 
     private func deliver(_ result: Result<URL, Error>) {
-        Task { @MainActor [weak self] in
-            guard let self, !self.delivered else { return }
+        Task { @MainActor in
+            guard !self.delivered else { return }
             self.delivered = true
+            self.recordingOutput = nil // 现在可以释放了
             self.completion(result)
         }
     }
