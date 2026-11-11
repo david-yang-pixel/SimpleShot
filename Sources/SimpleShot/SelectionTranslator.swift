@@ -221,8 +221,11 @@ final class SelectionTranslator {
     private func showIcon(at point: CGPoint, text: String) {
         hideIcon()
         let panel = SelectionIconPanel.make { [weak self] in
-            self?.hideIcon()
-            self?.showPopup(text: text, near: point)
+            guard let self else { return }
+            // 以被点击的图标为基准定位浮窗
+            let anchor = self.iconPanel?.frame ?? CGRect(origin: point, size: .zero)
+            self.hideIcon()
+            self.showPopup(text: text, anchor: anchor)
         }
         panel.show(near: point)
         iconPanel = panel
@@ -239,14 +242,14 @@ final class SelectionTranslator {
         iconPanel = nil
     }
 
-    private func showPopup(text: String, near point: CGPoint) {
+    private func showPopup(text: String, anchor: CGRect) {
         popup?.close()
         let panel = SelectionTranslatePanel.make(source: text)
         panel.onClose = { [weak self, weak panel] in
             if self?.popup === panel { self?.popup = nil }
         }
         popup = panel
-        panel.show(near: point)
+        panel.show(anchor: anchor)
     }
 }
 
@@ -417,11 +420,21 @@ final class SelectionTranslatePanel: NSPanel {
         ])
     }
 
-    func show(near point: CGPoint) {
-        var origin = CGPoint(x: point.x + 10, y: point.y - 12 - frame.height)
-        if let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) {
+    /// true：浮窗在图标上方，高度变化时底边固定、向上长；false：在图标下方，顶边固定、向下长
+    private var growsUpward = true
+
+    /// 浮窗出现在被点击图标的右上角（左下角贴着图标右上角）；上方放不下就放到图标右下方
+    func show(anchor: CGRect) {
+        let gap: CGFloat = 4
+        var origin = CGPoint(x: anchor.maxX + gap, y: anchor.maxY + gap)
+        growsUpward = true
+        let center = CGPoint(x: anchor.midX, y: anchor.midY)
+        if let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) ?? NSScreen.main {
             let visible = screen.visibleFrame
-            if origin.y < visible.minY { origin.y = point.y + 20 }
+            if origin.y + frame.height > visible.maxY - 4 {
+                origin.y = anchor.minY - gap - frame.height
+                growsUpward = false
+            }
             origin.x = min(max(origin.x, visible.minX + 4), visible.maxX - frame.width - 4)
             origin.y = min(max(origin.y, visible.minY + 4), visible.maxY - frame.height - 4)
         }
@@ -469,9 +482,12 @@ final class SelectionTranslatePanel: NSPanel {
         heightConstraint.constant = newHeight
         var frame = self.frame
         frame.size.height += delta
-        frame.origin.y -= delta // 保持顶部位置不变
-        if let screen = screen, frame.minY < screen.visibleFrame.minY {
-            frame.origin.y = screen.visibleFrame.minY + 4
+        if !growsUpward {
+            frame.origin.y -= delta // 在图标下方：保持顶部位置不变
+        }
+        if let visible = screen?.visibleFrame {
+            if frame.maxY > visible.maxY - 4 { frame.origin.y = visible.maxY - 4 - frame.height }
+            if frame.minY < visible.minY + 4 { frame.origin.y = visible.minY + 4 }
         }
         setFrame(frame, display: true, animate: false)
     }
