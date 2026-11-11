@@ -62,6 +62,28 @@ enum SelectedTextReader {
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .empty : .text(text)
     }
 
+    /// 选中文字在屏幕上的位置（Cocoa 全局坐标）；应用不支持时返回 nil
+    static func selectionBounds() -> CGRect? {
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.5)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
+        let element = focused as! AXUIElement
+        var range: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &range) == .success,
+              let range else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString,
+                                                         range, &value) == .success,
+              let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var rect = CGRect.zero
+        guard AXValueGetValue(value as! AXValue, .cgRect, &rect), rect.width > 1, rect.height > 1 else { return nil }
+        // 辅助功能坐标原点在主屏左上角，转换为 Cocoa 坐标（左下角）
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        return CGRect(x: rect.minX, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
+    }
+
     /// 模拟 ⌘C 读取选中文字，读完恢复原来的剪贴板内容
     @MainActor
     private static func readViaCopy() async -> String? {
@@ -178,6 +200,7 @@ final class SelectionTranslator {
             hideIcon()
             popup?.closeIfNotPinned()
         case .leftMouseUp:
+            let down = downPoint
             let dragged = hypot(location.x - downPoint.x, location.y - downPoint.y) > 6
             guard dragged || event.clickCount >= 2 else { return }
             guard SelectedTextReader.isTrusted,
@@ -188,11 +211,26 @@ final class SelectionTranslator {
                 try? await Task.sleep(nanoseconds: 120_000_000)
                 guard let text = await SelectedTextReader.read(from: app),
                       SelectionTranslator.isForeign(text) else { return }
-                self.showIcon(at: location, text: text)
+                self.showIcon(at: location, text: text,
+                              selection: SelectionTranslator.selectionArea(down: down, up: location))
             }
         default:
             break
         }
+    }
+
+    /// 选中文字大致占据的区域：优先用辅助功能读到的实际位置；读不到就用按下/松开鼠标的位置估算
+    static func selectionArea(down: CGPoint, up: CGPoint) -> CGRect {
+        let lineHalf: CGFloat = 16
+        var estimate = CGRect(x: min(down.x, up.x), y: min(down.y, up.y) - lineHalf,
+                              width: abs(up.x - down.x), height: abs(up.y - down.y) + lineHalf * 2)
+        if estimate.width < 1 { estimate = estimate.insetBy(dx: -60, dy: 0) } // 双击选词：左右各留一点
+        // 实际位置要在鼠标附近才可信（个别应用会返回错误坐标）
+        if let exact = SelectedTextReader.selectionBounds(),
+           exact.insetBy(dx: -300, dy: -300).contains(up) {
+            return exact.union(estimate)
+        }
+        return estimate
     }
 
     /// 只有选中的不是中文时才提供翻译
@@ -218,14 +256,14 @@ final class SelectionTranslator {
 
     // MARK: 图标与浮窗
 
-    private func showIcon(at point: CGPoint, text: String) {
+    private func showIcon(at point: CGPoint, text: String, selection: CGRect) {
         hideIcon()
         let panel = SelectionIconPanel.make { [weak self] in
             guard let self else { return }
             // 以被点击的图标为基准定位浮窗
             let anchor = self.iconPanel?.frame ?? CGRect(origin: point, size: .zero)
             self.hideIcon()
-            self.showPopup(text: text, anchor: anchor)
+            self.showPopup(text: text, anchor: anchor, avoiding: selection)
         }
         panel.show(near: point)
         iconPanel = panel
@@ -242,14 +280,14 @@ final class SelectionTranslator {
         iconPanel = nil
     }
 
-    private func showPopup(text: String, anchor: CGRect) {
+    private func showPopup(text: String, anchor: CGRect, avoiding selection: CGRect) {
         popup?.close()
         let panel = SelectionTranslatePanel.make(source: text)
         panel.onClose = { [weak self, weak panel] in
             if self?.popup === panel { self?.popup = nil }
         }
         popup = panel
-        panel.show(anchor: anchor)
+        panel.show(anchor: anchor, avoiding: selection)
     }
 }
 
@@ -423,20 +461,32 @@ final class SelectionTranslatePanel: NSPanel {
     /// true：浮窗在图标上方，高度变化时底边固定、向上长；false：在图标下方，顶边固定、向下长
     private var growsUpward = true
 
-    /// 浮窗出现在被点击图标的右上角（左下角贴着图标右上角）；上方放不下就放到图标右下方
-    func show(anchor: CGRect) {
-        let gap: CGFloat = 4
-        var origin = CGPoint(x: anchor.maxX + gap, y: anchor.maxY + gap)
-        growsUpward = true
+    /// 浮窗在被点击图标的右侧，并且完全避开选中的原文：
+    /// 优先放在原文上方（底边高于选区顶部），放不下就放在原文下方，都不行就放在选区右侧
+    func show(anchor: CGRect, avoiding selection: CGRect) {
+        let gap: CGFloat = 6
+        let size = frame.size
         let center = CGPoint(x: anchor.midX, y: anchor.midY)
-        if let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            if origin.y + frame.height > visible.maxY - 4 {
-                origin.y = anchor.minY - gap - frame.height
-                growsUpward = false
-            }
-            origin.x = min(max(origin.x, visible.minX + 4), visible.maxX - frame.width - 4)
-            origin.y = min(max(origin.y, visible.minY + 4), visible.maxY - frame.height - 4)
+        let visible = (NSScreen.screens.first(where: { $0.frame.contains(center) }) ?? NSScreen.main)?.visibleFrame
+            ?? CGRect(x: 0, y: 0, width: 10000, height: 10000)
+        let clampX = { (x: CGFloat) in min(max(x, visible.minX + 4), visible.maxX - size.width - 4) }
+
+        let above = max(anchor.maxY, selection.maxY) + gap
+        let below = min(anchor.minY, selection.minY) - gap - size.height
+        var origin: CGPoint
+        if above + size.height <= visible.maxY - 4 {
+            origin = CGPoint(x: clampX(anchor.maxX + gap), y: above)
+            growsUpward = true
+        } else if below >= visible.minY + 4 {
+            origin = CGPoint(x: clampX(anchor.maxX + gap), y: below)
+            growsUpward = false
+        } else {
+            // 上下都放不下：放到选区右侧（或左侧）
+            let rightX = max(anchor.maxX, selection.maxX) + gap
+            let x = rightX + size.width <= visible.maxX - 4 ? rightX : selection.minX - gap - size.width
+            let y = min(max(selection.midY - size.height / 2, visible.minY + 4), visible.maxY - size.height - 4)
+            origin = CGPoint(x: max(x, visible.minX + 4), y: y)
+            growsUpward = false
         }
         setFrameOrigin(origin)
         orderFrontRegardless()
