@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 enum CaptureAction {
-    case copy, extractText, translate, cancel
+    case copy, extractText, cancel
 }
 
 @MainActor
@@ -45,6 +45,14 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
     private var hoverRect: CGRect?
     /// 单击选中的是某个窗口时记下它的 ID（录屏时单独录这个窗口）；手动框选或调整过选区则为 nil
     private var selectedWindowID: CGWindowID?
+
+    // 截图原位翻译
+    private var translatedBlocks: [TranslatedBlock] = []
+    private var showsTranslation = true
+    private var isTranslating = false
+    private var translationStatus: String?
+    private var statusClearTask: Task<Void, Never>?
+    private lazy var translationRunner = TranslationRunner(hostView: self)
     private var mousePoint: CGPoint?
     private var selection: CGRect = .zero
 
@@ -320,6 +328,9 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
         phase = .choosing
         dragMode = .none
         annotations.removeAll()
+        translatedBlocks.removeAll()
+        showsTranslation = true
+        translationStatus = nil
         currentAnnotation = nil
         tool = nil
         toolbar?.removeFromSuperview()
@@ -564,7 +575,111 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
 
     func toolbarUndo(_ toolbar: ToolbarView) { undo() }
     func toolbarExtractText(_ toolbar: ToolbarView) { finish(.extractText) }
-    func toolbarTranslate(_ toolbar: ToolbarView) { finish(.translate) }
+    /// 翻译：把译文直接盖在截图里原文的位置；再点一次在原文 / 译文之间切换
+    func toolbarTranslate(_ toolbar: ToolbarView) {
+        commitTextField()
+        guard phase == .selected, !isTranslating else { return }
+        if !translatedBlocks.isEmpty {
+            showsTranslation.toggle()
+            toolbar.setTranslateActive(showsTranslation)
+            setStatus(showsTranslation ? "显示译文" : "显示原文", autoClear: true)
+            needsDisplay = true
+            return
+        }
+        guard let image = renderOutput(includeAnnotations: false) else { return }
+        let area = selection
+        isTranslating = true
+        setStatus("正在识别文字…", autoClear: false)
+        Task { @MainActor in
+            do {
+                let lines = try await TextRecognizer.recognizeLines(image)
+                let sources = InPlaceTranslation.blocks(from: lines, in: area)
+                guard !sources.isEmpty else {
+                    self.isTranslating = false
+                    self.setStatus("没有识别到文字", autoClear: true)
+                    return
+                }
+                self.translationRunner.translateBatch(sources.map(\.text), onStart: { [weak self] plan in
+                    self?.setStatus(plan.busyText, autoClear: false)
+                }, completion: { [weak self] result in
+                    guard let self else { return }
+                    self.isTranslating = false
+                    switch result {
+                    case .success(let texts):
+                        self.applyTranslation(sources: sources, texts: texts)
+                    case .failure(let error):
+                        self.setStatus("翻译失败：\(error.localizedDescription)", autoClear: true)
+                    }
+                })
+            } catch {
+                self.isTranslating = false
+                self.setStatus("识别失败：\(error.localizedDescription)", autoClear: true)
+            }
+        }
+    }
+
+    private func applyTranslation(sources: [SourceBlock], texts: [String]) {
+        translatedBlocks = zip(sources, texts).compactMap { source, text in
+            let translated = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !translated.isEmpty else { return nil }
+            let background = backgroundColor(around: source.rect)
+            return TranslatedBlock(
+                rect: source.rect, text: translated,
+                fontSize: InPlaceTranslation.fittingFontSize(for: translated, in: source.rect, lineHeight: source.lineHeight),
+                background: background, foreground: InPlaceTranslation.foreground(for: background))
+        }
+        showsTranslation = true
+        toolbar?.setTranslateActive(true)
+        setStatus("已翻译 · 再点「翻译」看原文 · 回车复制", autoClear: true)
+        needsDisplay = true
+    }
+
+    private func setStatus(_ text: String?, autoClear: Bool) {
+        statusClearTask?.cancel()
+        translationStatus = text
+        needsDisplay = true
+        guard autoClear, text != nil else { return }
+        statusClearTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.translationStatus = nil
+            self?.needsDisplay = true
+        }
+    }
+
+    /// 取原文区域四周的背景色（取亮度居中的那个，避开文字笔画）
+    private func backgroundColor(around rect: CGRect) -> NSColor {
+        let s = pixelScale
+        let outer = rect.insetBy(dx: -3, dy: -3)
+        var points: [CGPoint] = []
+        for f in stride(from: 0.0, through: 1.0, by: 0.25) {
+            points.append(CGPoint(x: outer.minX + outer.width * f, y: outer.minY))
+            points.append(CGPoint(x: outer.minX + outer.width * f, y: outer.maxY))
+        }
+        points.append(CGPoint(x: outer.minX, y: outer.midY))
+        points.append(CGPoint(x: outer.maxX, y: outer.midY))
+        let colors: [(CGFloat, CGFloat, CGFloat)] = points.compactMap { p in
+            pixelColor(x: Int(p.x * s), y: Int((bounds.height - p.y) * s))
+        }
+        guard !colors.isEmpty else { return .white }
+        let sorted = colors.sorted { ($0.0 + $0.1 + $0.2) < ($1.0 + $1.1 + $1.2) }
+        let mid = sorted[sorted.count / 2]
+        return NSColor(srgbRed: mid.0, green: mid.1, blue: mid.2, alpha: 1)
+    }
+
+    private func drawTranslationStatus(in ctx: CGContext) {
+        guard let text = translationStatus, phase == .selected else { return }
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+            .foregroundColor: NSColor.white,
+        ]
+        let str = NSAttributedString(string: text, attributes: attrs)
+        let size = str.size()
+        let box = CGRect(x: selection.minX + 8, y: selection.minY + 8, width: size.width + 20, height: size.height + 10)
+        NSColor(white: 0, alpha: 0.75).setFill()
+        NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
+        str.draw(at: CGPoint(x: box.minX + 10, y: box.minY + 5))
+    }
 
     func toolbarStartRecording(_ toolbar: ToolbarView, recordWindow: Bool, systemAudio: Bool, microphone: Bool) {
         commitTextField()
@@ -603,7 +718,8 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
             .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
         guard !pixelRect.isNull, pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
 
-        if annotations.isEmpty || !includeAnnotations { return image.cropping(to: pixelRect) }
+        let blocks = (includeAnnotations && showsTranslation) ? translatedBlocks : []
+        if (annotations.isEmpty && blocks.isEmpty) || !includeAnnotations { return image.cropping(to: pixelRect) }
 
         let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
         guard let ctx = CGContext(data: nil, width: Int(pixelRect.width), height: Int(pixelRect.height),
@@ -619,6 +735,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
         ctx.interpolationQuality = .none
         ctx.draw(image, in: bounds)
         ctx.clip(to: selection)
+        InPlaceTranslation.draw(blocks, in: ctx)
         for a in annotations { renderer.draw(a, in: ctx) }
         return ctx.makeImage()
     }
@@ -639,6 +756,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
         if phase == .selected {
             ctx.saveGState()
             ctx.clip(to: selection)
+            if showsTranslation { InPlaceTranslation.draw(translatedBlocks, in: ctx) }
             for a in annotations { renderer.draw(a, in: ctx) }
             if let a = currentAnnotation { renderer.draw(a, in: ctx) }
             ctx.restoreGState()
@@ -678,6 +796,7 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
         }
 
         drawSizeLabel(for: h)
+        drawTranslationStatus(in: ctx)
 
         if phase != .selected, !isLocked, let p = mousePoint {
             drawMagnifier(at: p)
@@ -760,6 +879,12 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
     }
 
     private func pixelHex(x: Int, y: Int) -> String? {
+        guard let c = pixelColor(x: x, y: y) else { return nil }
+        return String(format: "#%02X%02X%02X", Int(c.0 * 255), Int(c.1 * 255), Int(c.2 * 255))
+    }
+
+    /// 读取截图某个像素的颜色（sRGB，0~1）
+    private func pixelColor(x: Int, y: Int) -> (CGFloat, CGFloat, CGFloat)? {
         let image = shot.image
         guard x >= 0, y >= 0, x < image.width, y < image.height,
               let crop = image.cropping(to: CGRect(x: x, y: y, width: 1, height: 1)) else { return nil }
@@ -773,6 +898,6 @@ final class SelectionView: NSView, ToolbarViewDelegate, NSTextFieldDelegate {
             return true
         }
         guard ok else { return nil }
-        return String(format: "#%02X%02X%02X", pixel[0], pixel[1], pixel[2])
+        return (CGFloat(pixel[0]) / 255, CGFloat(pixel[1]) / 255, CGFloat(pixel[2]) / 255)
     }
 }

@@ -25,6 +25,7 @@ final class ToolbarView: NSVisualEffectView {
     private let systemAudioCheckbox = NSButton(checkboxWithTitle: "系统声音", target: nil, action: nil)
     private let microphoneCheckbox = NSButton(checkboxWithTitle: "麦克风", target: nil, action: nil)
     private var recordButton: NSButton?
+    private var translateButton: NSButton?
     /// 录制对象：0 = 固定区域，1 = 该窗口
     private let recordTargetControl = NSSegmentedControl(labels: ["固定区域", "该窗口"], trackingMode: .selectOne,
                                                          target: nil, action: nil)
@@ -73,7 +74,9 @@ final class ToolbarView: NSVisualEffectView {
         mainRow.addArrangedSubview(makeButton("arrow.uturn.backward", "撤销 (⌘Z)", #selector(undoTapped)))
         mainRow.addArrangedSubview(makeSeparator())
         mainRow.addArrangedSubview(makeButton("text.viewfinder", "提取文字", #selector(extractTextTapped)))
-        mainRow.addArrangedSubview(makeButton("translate", "翻译", #selector(translateTapped)))
+        let translate = makeButton("translate", "翻译（译文直接显示在截图上，再点切换原文）", #selector(translateTapped))
+        translateButton = translate
+        mainRow.addArrangedSubview(translate)
         let record = makeButton("record.circle", "录屏", #selector(recordTapped))
         recordButton = record
         mainRow.addArrangedSubview(record)
@@ -199,6 +202,12 @@ final class ToolbarView: NSVisualEffectView {
     }
 
     var isRecordOptionsVisible: Bool { !recordRow.isHidden }
+
+    /// 显示译文时高亮翻译按钮
+    func setTranslateActive(_ on: Bool) {
+        translateButton?.contentTintColor = on ? .controlAccentColor : .labelColor
+        translateButton?.layer?.backgroundColor = on ? NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor : nil
+    }
 
     /// windowAvailable：选区下有可录的窗口；preferWindow：默认选“该窗口”（单击选中窗口时）
     func setRecordTarget(windowAvailable: Bool, preferWindow: Bool) {

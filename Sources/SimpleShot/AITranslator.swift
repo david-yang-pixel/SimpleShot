@@ -86,12 +86,54 @@ enum AITranslator {
             要求：只输出译文本身，不要解释、不要加引号或前后缀；保留原文的换行和段落结构；\
             专有名词、代码、网址保持原样。文本来自截图的文字识别，可能有个别识别错误或断行，请结合上下文理解后自然地翻译。
             """
+        return try await complete(text, system: system, config: config)
+    }
+
+    private static func complete(_ text: String, system: String, config: AIConfig) async throws -> String {
         switch config.kind {
         case .openAICompatible:
             return try await openAI(text, system: system, config: config)
         case .anthropic:
             return try await anthropic(text, system: system, config: config)
         }
+    }
+
+    /// 一次请求翻译多段文字（编号对应）；解析不出完整结果时逐段翻译兜底
+    static func translateBatch(_ texts: [String], to targetLanguageName: String, config: AIConfig) async throws -> [String] {
+        if texts.count <= 1 {
+            return [try await translate(texts.first ?? "", to: targetLanguageName, config: config)]
+        }
+        guard !config.baseURL.trimmingCharacters(in: .whitespaces).isEmpty,
+              !config.model.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw AITranslateError.notConfigured("请先在设置里填写 AI 接口地址和模型")
+        }
+        let system = """
+            你是专业的翻译。用户会发来若干编号段落，格式为“[编号] 原文”。请把每一段翻译成\(targetLanguageName)。
+            要求：严格按相同编号逐段输出，每段一行，格式为“[编号] 译文”；不要合并、拆分或遗漏段落，不要输出任何其他内容；\
+            专有名词、代码、网址保持原样。段落来自截图的文字识别，可能有个别识别错误，请结合上下文自然地翻译。
+            """
+        let user = texts.enumerated()
+            .map { "[\($0.offset + 1)] \($0.element.replacingOccurrences(of: "\n", with: " "))" }
+            .joined(separator: "\n")
+        let reply = try await complete(user, system: system, config: config)
+
+        var results: [Int: String] = [:]
+        for line in reply.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("["), let close = trimmed.firstIndex(of: "]"),
+                  let number = Int(trimmed[trimmed.index(after: trimmed.startIndex)..<close]) else { continue }
+            let body = trimmed[trimmed.index(after: close)...].trimmingCharacters(in: .whitespaces)
+            if results[number] == nil { results[number] = body }
+        }
+        if (1...texts.count).allSatisfy({ results[$0] != nil }) {
+            return (1...texts.count).map { results[$0]! }
+        }
+        // 兜底：逐段翻译
+        var output: [String] = []
+        for text in texts {
+            output.append(try await translate(text, to: targetLanguageName, config: config))
+        }
+        return output
     }
 
     // MARK: OpenAI 兼容（DeepSeek、通义千问、Kimi、智谱、OpenAI、Ollama…）

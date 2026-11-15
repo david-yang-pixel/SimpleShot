@@ -58,9 +58,9 @@ cd SimpleShot
 **提取文字**：选好区域后点工具条上的「提取文字」，用系统自带的 Vision 框架离线识别（简体中文 + 英文），
 结果显示在弹窗中，可以修改、选中部分 `⌘C` 复制，或点「复制全部」（`⌘↩`）。
 
-**翻译**：点工具条上的「翻译」，先离线识别文字，再用系统自带的翻译引擎翻译（需要 macOS 15+）：
-外文自动翻成简体中文，中文翻成英文。弹窗上半部分是原文（可修改后「重新翻译」），下半部分是译文，
-「复制译文」快捷键 `⌘↩`。某种语言首次使用时系统会提示下载语言包，之后可离线使用。
+**截图翻译**：点工具条上的「翻译」，译文会**直接盖在截图里原文的位置**（不弹窗）：先离线识别文字并按段落合并，
+再一次性翻译（外文→简体中文，中文→英文），用原文周围的背景色盖住原文后写上译文，字号自动适配。
+再点一次「翻译」可在原文 / 译文之间切换；回车或 ✓ 复制的是带译文的截图。
 
 **用自己的 AI 模型翻译**：设置 › 翻译引擎 选「AI 大模型」，可用「快速填写」选择 DeepSeek、通义千问、Kimi、智谱 GLM、
 OpenAI、Ollama（本机）或 Claude，再填入 API Key，点「测试」确认可用。支持任意 **OpenAI 兼容接口**（自定义地址与模型名）
@@ -122,7 +122,8 @@ Sources/SimpleShot/
   ImageExporter.swift          复制到剪贴板
   SecureInputMonitor.swift     检测“安全输入”导致的快捷键失灵
   TextRecognizer.swift         文字识别 + 识别结果窗口
-  Translator.swift             翻译（系统 Translation 框架）+ 翻译结果窗口
+  Translator.swift             翻译执行（系统 Translation 框架 / AI，支持批量）
+  InPlaceTranslation.swift     截图原位翻译：段落合并、背景取色、译文排版
   AITranslator.swift           AI 大模型翻译（OpenAI 兼容 / Claude）+ 钥匙串存储
   SelectionTranslator.swift    划词翻译：读取选中文字、翻译图标与浮窗
   InputTranslator.swift        输入翻译窗口（快捷键呼出）

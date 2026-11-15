@@ -1,6 +1,12 @@
 import AppKit
 import Vision
 
+/// 识别出的一行文字；box 为归一化坐标（0~1，原点在左下）
+struct OCRLine: Sendable {
+    let text: String
+    let box: CGRect
+}
+
 /// 使用系统 Vision 框架离线识别文字（简体中文模型同时支持英文）
 enum TextRecognizer {
     /// 超过这个像素数的图片先缩小再识别（约 2400×1600），足够识别清晰的文字
@@ -13,6 +19,20 @@ enum TextRecognizer {
             let handler = VNImageRequestHandler(cgImage: input, options: [:])
             try handler.perform([request])
             return TextRecognizer.layout(request.results ?? [])
+        }.value
+    }
+
+    /// 识别文字并保留每一行的位置（截图原位翻译用）
+    static func recognizeLines(_ image: CGImage) async throws -> [OCRLine] {
+        try await Task.detached(priority: .userInitiated) {
+            let request = makeRequest()
+            let handler = VNImageRequestHandler(cgImage: downscaledIfNeeded(image), options: [:])
+            try handler.perform([request])
+            return (request.results ?? []).compactMap { obs -> OCRLine? in
+                guard let text = obs.topCandidates(1).first?.string,
+                      !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+                return OCRLine(text: text, box: obs.boundingBox)
+            }
         }.value
     }
 

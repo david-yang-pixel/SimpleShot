@@ -136,8 +136,6 @@ final class CaptureController: SelectionViewDelegate {
         switch action {
         case .copy:
             ImageExporter.copyToPasteboard(image, pointSize: pointSize)
-        case .translate:
-            TranslateWindowController.show(recognizing: image)
         case .extractText:
             TextResultWindowController.show(recognizing: image)
         case .cancel:
